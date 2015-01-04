@@ -6,61 +6,53 @@ import urllib2
 
 #import pdb; pdb.set_trace()
 
-class SimpleRemoteApi(object):
+class CameraRemoteApi(object):
+
+    SERVICE_NAME = "camera"
 
     __METHODS = {
         #Shoot mode
         "setShootMode": {
-            "service": ["camera"],
             "params": ["shootMode"],
             "version": "1.0"
         },
         "getShootMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedShootMode": {
-            "service": ["camera"],
             "params": [],
              "version": "1.0"
         },
         "getAvailableShootMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Still capture
         "actTakePicture": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "awaitTakePicture": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "startContShooting": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "stoptContShooting": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Movie recording
         "startMovieRec": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "stopMovieRec": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
@@ -70,34 +62,28 @@ class SimpleRemoteApi(object):
 
         #Liveview
         "startLiveview": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "stopLiveview": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Liveview size
         "startLiveviewWithSize": {
-            "service": ["camera"],
             "params": ["liveviewSize"],
             "version": "1.0"
         },
         "getLiveviewSize": {
-            "service": ["camera"],
             "params": ["liveviewSize"],
             "version": "1.0"
         },
         "getSupportedLiveviewSize": {
-            "service": ["camera"],
             "params": ["liveviewSize"],
             "version": "1.0"
         },
         "getAvailableLiveviewSize": {
-            "service": ["camera"],
             "params": ["liveviewSize"],
             "version": "1.0"
         },
@@ -106,7 +92,6 @@ class SimpleRemoteApi(object):
 
         #Zoom
         "actZoom": {
-            "service": ["camera"],
             "params": ["zoomDirection", "zoomMovement"],
             "version": "1.0"
         },
@@ -116,17 +101,14 @@ class SimpleRemoteApi(object):
 
         #Touch AF position
         "setTouchAFPosition": {
-            "service": ["camera"],
             "params": ["xAxisPosition", "yAxisPosition"],
             "version": "1.0"
         },
         "getTouchAFPosition": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "cancelTouchAFPosition": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
@@ -137,161 +119,132 @@ class SimpleRemoteApi(object):
 
         #Self-timer
         "setSelfTimer": {
-            "service": ["camera"],
             "params": ["selfTimer"],
             "version": "1.0"
         },
         "getSelfTimer": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedSelfTimer": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableSelfTimer": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Exposure mode
         "setExposureMode": {
-            "service": ["camera"],
             "params": ["exposureMode"],
             "version": "1.0"
         },
         "getExposureMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedExposureMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableExposureMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Focus mode
         "setFocusMode": {
-            "service": ["camera"],
             "params": ["focusMode"],
             "version": "1.0"
         },
         "getFocusMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedFocusMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableFocusMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Exposure compensation
         "setExposureCompensation": {
-            "service": ["camera"],
             "params": ["exposureCompensation"],
             "version": "1.0"
         },
         "getExposureCompensation": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedExposureCompensation": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableExposureCompensation": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #F number
         "setFNumber": {
-            "service": ["camera"],
             "params": ["fNumber"],
             "version": "1.0"
         },
         "getFNumber": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedFNumber": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableFNumber": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Shutter speed
         "setShutterSpeed": {
-            "service": ["camera"],
             "params": ["shutterSpeed"],
             "version": "1.0"
         },
         "getShutterSpeed": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableShutterSpeed": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedShutterSpeed": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #ISO speed rate
         "setIsoSpeedRate": {
-            "service": ["camera"],
             "params": ["isoSpeedRate"],
             "version": "1.0"
         },
         "getIsoSpeedRate": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedIsoSpeedRate": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableIsoSpeedRate": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #White bzalance
         "setWhiteBalance": {
-            "service": ["camera"],
             "params": [
                 "whiteBalanceMode", "colorTemperatureEnabled",
                 "colorTemperature"
@@ -301,34 +254,28 @@ class SimpleRemoteApi(object):
 
         #Program shift
         "setProgramShift": {
-            "service": ["camera"],
             "params": ["programShift"],
             "version": "1.0"
         },
         "getSupportedProgramShift": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
 
         #Flash mode
         "setFlashMode": {
-            "service": ["camera"],
             "params": ["flashMode"],
             "version": "1.0"
         },
         "getFlashMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getSupportedFlashMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getAvailableFlashMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
@@ -338,22 +285,18 @@ class SimpleRemoteApi(object):
 
         #Postview image size
         "setPostviewImageSize": {
-            "service": ["camera"],
             "params": ["postviewImageSize"],
             "version": "1.0"
         },
         "getPostviewImageSize": {
-            "service": ["camera"],
             "params": ["postviewImageSize"],
             "version": "1.0"
         },
         "getSupportedPostviewImageSize": {
-            "service": ["camera"],
             "params": ["postviewImageSize"],
             "version": "1.0"
         },
         "getAvailablePostviewImageSize": {
-            "service": ["camera"],
             "params": ["postviewImageSize"],
             "version": "1.0"
         },
@@ -370,7 +313,6 @@ class SimpleRemoteApi(object):
 
         #Camera setup
         "startRecMode": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
@@ -392,34 +334,28 @@ class SimpleRemoteApi(object):
 
         #Event notification
         "getEvent": {
-            "service": ["camera"],
             "params": ["longPollingFlag"],
             "version": "1.0"
         },
 
         #Server information
         "getAvailableApiList": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getApplicationInfo": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getVersions": {
-            "service": ["camera", "system", "avContent"],
             "params": [],
             "version": "1.0"
         },
         "getMethodTypes": {
-            "service": ["camera"],
             "params": [],
             "version": "1.0"
         },
         "getMethodTypes": {
-            "service": ["camera", "system", "avContent"],
             "params": ["apiVersion"],
             "version": "1.0"
         },
@@ -474,42 +410,23 @@ class SimpleRemoteApi(object):
         "longPollingFlag": bool,
     }
 
-    def __init__(self):
+    def __init__(self, endpoint_url):
+        self.__endpoint_url = endpoint_url
         self.__request_id = 1
-        self.__device_server = None
-        self.__service = None
         self.__timeout = 2
-
-    def set_device_server(self, device_server):
-        self.__device_server = device_server
-        self.__service = None
-
-    def set_service(self, service):
-        if self.__device_server is None:
-            raise Exception("device server not set")
-
-        if not self.__device_server.has_api_service(service):
-            raise Exception("service not provided by device server")
-
-        self.__service = service
 
     def set_timeout(self, timeout):
         self.__timeout = timeout
 
     def __getattr__(self, name):
-        if name in SimpleRemoteApi.__METHODS:
+        if name in CameraRemoteApi.__METHODS:
             return partial(self.__trunk, name)
         else:
             raise AttributeError("Attribute %s not found" % (name,))
 
     def __trunk(self, name, *args, **kwargs):
-        if self.__device_server is None:
-            raise Exception("device server not set")
-
         #check that the function exists in the service
-        method = SimpleRemoteApi.__METHODS[name]
-        if self.__service not in method["service"]:
-            raise Exception("\"%s\": method not provided by the service" % (name,))
+        method = CameraRemoteApi.__METHODS[name]
         params = method["params"]
         if len(args) != 0 or len(kwargs) > len(params):
             raise Exception('wrong number of parameters')
@@ -546,13 +463,9 @@ class SimpleRemoteApi(object):
         req_id = self.__request_id
         self.__request_id += 1
 
-        if self.__service not in method["service"]:
-            raise Exception("service error")
-        url = self.__device_server.get_endpoint_url(self.__service)
-
         data_json = json.dumps(data)
         headers = {'content-type': 'application/json'}
-        req = urllib2.Request(url, data_json, headers)
+        req = urllib2.Request(self.__endpoint_url, data_json, headers)
         resp_json = urllib2.urlopen(req, timeout=self.__timeout).read()
         resp = json.loads(resp_json)
 

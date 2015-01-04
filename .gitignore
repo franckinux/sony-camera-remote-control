@@ -1,6 +1,8 @@
 *~
 data/*
+exemples/*
 doc/*
+tmp/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
