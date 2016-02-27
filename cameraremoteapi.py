@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from distutils.version import StrictVersion
 from functools import partial
 import json
-import urllib2
+import logging
+import socket
+import urllib
 
-#import pdb; pdb.set_trace()
+from utils import debug_trace
+
+MINIMUM_API_VERSION = "2.0.0"
+
 
 class CameraRemoteApi(object):
 
@@ -47,7 +53,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Movie recording
+        # Movie recording
         "startMovieRec": {
             "params": [],
             "version": "1.0"
@@ -57,10 +63,10 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Audio recording (N/A)
-        #Intervall still recording (N/A)
+        # Audio recording (N/A)
+        # Intervall still recording (N/A)
 
-        #Liveview
+        # Liveview
         "startLiveview": {
             "params": [],
             "version": "1.0"
@@ -70,7 +76,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Liveview size
+        # Liveview size
         "startLiveviewWithSize": {
             "params": ["liveviewSize"],
             "version": "1.0"
@@ -88,18 +94,18 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Liveview frame (N/A)
+        # Liveview frame (N/A)
 
-        #Zoom
+        # Zoom
         "actZoom": {
             "params": ["zoomDirection", "zoomMovement"],
             "version": "1.0"
         },
 
-        #Zoom setting (N/A)
-        #Half-press shutter (N/A)
+        # Zoom setting (N/A)
+        # Half-press shutter (N/A)
 
-        #Touch AF position
+        # Touch AF position
         "setTouchAFPosition": {
             "params": ["xAxisPosition", "yAxisPosition"],
             "version": "1.0"
@@ -113,11 +119,11 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Tracking focus (N/A)
-        #Continuous shooting mode (N/A)
-        #Continuous shooting speed (N/A)
+        # Tracking focus (N/A)
+        # Continuous shooting mode (N/A)
+        # Continuous shooting speed (N/A)
 
-        #Self-timer
+        # Self-timer
         "setSelfTimer": {
             "params": ["selfTimer"],
             "version": "1.0"
@@ -135,7 +141,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Exposure mode
+        # Exposure mode
         "setExposureMode": {
             "params": ["exposureMode"],
             "version": "1.0"
@@ -153,7 +159,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Focus mode
+        # Focus mode
         "setFocusMode": {
             "params": ["focusMode"],
             "version": "1.0"
@@ -171,7 +177,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Exposure compensation
+        # Exposure compensation
         "setExposureCompensation": {
             "params": ["exposureCompensation"],
             "version": "1.0"
@@ -189,7 +195,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #F number
+        # F number
         "setFNumber": {
             "params": ["fNumber"],
             "version": "1.0"
@@ -207,7 +213,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Shutter speed
+        # Shutter speed
         "setShutterSpeed": {
             "params": ["shutterSpeed"],
             "version": "1.0"
@@ -225,7 +231,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #ISO speed rate
+        # ISO speed rate
         "setIsoSpeedRate": {
             "params": ["isoSpeedRate"],
             "version": "1.0"
@@ -243,7 +249,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #White bzalance
+        # White balance
         "setWhiteBalance": {
             "params": [
                 "whiteBalanceMode", "colorTemperatureEnabled",
@@ -251,8 +257,20 @@ class CameraRemoteApi(object):
             ],
             "version": "1.0"
         },
+        "getWhiteBalance": {
+            "params": [],
+            "version": "1.0"
+        },
+        "getSupportedWhiteBalance": {
+            "params": [],
+            "version": "1.0"
+        },
+        "getAvailableWhiteBalance": {
+            "params": [],
+            "version": "1.0"
+        },
 
-        #Program shift
+        # Program shift
         "setProgramShift": {
             "params": ["programShift"],
             "version": "1.0"
@@ -262,7 +280,7 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Flash mode
+        # Flash mode
         "setFlashMode": {
             "params": ["flashMode"],
             "version": "1.0"
@@ -280,10 +298,10 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Still size (N/A)
-        #Still quality (N/A)
+        # Still size (N/A)
+        # Still quality (N/A)
 
-        #Postview image size
+        # Postview image size
         "setPostviewImageSize": {
             "params": ["postviewImageSize"],
             "version": "1.0"
@@ -301,44 +319,46 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
 
-        #Movie file format (N/A)
-        #Movie quality (N/A)
-        #Steady mode (N/A)
-        #View angle (N/A)
-        #Scene selection (N/A)
-        #Color setting (N/A)
-        #Interval time (N/A)
-        #Flip setting (N/A)
-        #TV color system (N/A)
+        # Movie file format (N/A)
+        # Movie quality (N/A)
+        # Steady mode (N/A)
+        # View angle (N/A)
+        # Scene selection (N/A)
+        # Color setting (N/A)
+        # Interval time (N/A)
+        # Flip setting (N/A)
+        # TV color system (N/A)
 
-        #Camera setup
+        # Camera setup
         "startRecMode": {
             "params": [],
-            "version": "1.0"
+            "version": "1.0",
+            "available_api_list_changed": True,
         },
         "stopRecMode": {
             "service": ["camera"],
             "params": [],
-            "version": "1.0"
+            "version": "1.0",
+            "available_api_list_changed": True,
         },
 
-        #Camera function (N/A)
-        #Transfering images (N/A)
-        #Remode playback (N/A)
-        #Delete contents (N/A)
-        #IR remote control (N/A)
-        #Auto power off (N/A)
-        #Beep mode (N/A)
-        #Date/time setting (N/A)
-        #Storage information (N/A)
+        # Camera function (N/A)
+        # Transfering images (N/A)
+        # Remode playback (N/A)
+        # Delete contents (N/A)
+        # IR remote control (N/A)
+        # Auto power off (N/A)
+        # Beep mode (N/A)
+        # Date/time setting (N/A)
+        # Storage information (N/A)
 
-        #Event notification
+        # Event notification
         "getEvent": {
             "params": ["longPollingFlag"],
             "version": "1.0"
         },
 
-        #Server information
+        # Server information
         "getAvailableApiList": {
             "params": [],
             "version": "1.0"
@@ -352,100 +372,164 @@ class CameraRemoteApi(object):
             "version": "1.0"
         },
         "getMethodTypes": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getMethodTypes": {
             "params": ["apiVersion"],
             "version": "1.0"
         },
     }
 
     __PARAMS = {
-        #startLiveViewWithSize
+        # startLiveViewWithSize
         "liveviewSize": ["L", "M"],
-        #actZoom
+        # actZoom
         "zoomDirection": ["in", "out"],
         "zoomMovement": ["start", "stop", "1shot"],
-        #setZoomSetting
+        # setZoomSetting
         "zoom": ["Optical Zoom Only", "On:Clear Image Zoom"],
-        #setExposureMode
+        # setExposureMode
         "exposureMode": [
             "Program Auto", "Aperture", "Shutter", "Manual",
             "Intelligent Auto", "Superior Auto"
         ],
-        #setFocusMode
+        # setFocusMode
         "focusMode": ["AF-S", "AF-C", "DMF", "MF"],
-        #setWhiteBalance
+        # setWhiteBalance
         "whiteBalanceMode": [
             "Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent"
             "Fluorescent: Warm White (-1)", "Fluorescent: Cool White (0)",
             "Fluorescent: Day White (+1)", "Fluorescent: Daylight (+2)",
             "Flash", "Color Temperature", "Custom 1", "Custom 2", "Custom 3"
         ],
-        #setFlasmode
+        # setFlasmode
         "flashMode": ["off", "auto", "on", "slowSync", "rearSync", "wireless"],
-        #setPostviewImageSize
+        # setPostviewImageSize
         "postviewImageSize": ["Original",  "2M"],
 
-        #setShootMode
+        # setShootMode
         "shootMode": ["still", "movie", "audio", "intervalstill"],
     }
 
     __TYPES = {
-        #setTouchAFPosition
+        # setTouchAFPosition
         "xAxisPosition": float,
         "yAxisPosition": float,
-        #setSelfTimer
+        # setSelfTimer
         "selfTimer": int,
-        #setExposureCompensation
+        # setExposureCompensation
         "exposureCompensation": int,
-        #setWhiteBalance
+        # setWhiteBalance
         "colorTemperatureEnabled": bool,
         "colorTemperature": int,
-        #setProgramShift
+        # setProgramShift
         "programShift": int,
 
-        #getEvent
+        # getEvent
         "longPollingFlag": bool,
+        # getMethodTypes
+        "apiVersion": str,
     }
 
     def __init__(self, endpoint_url):
         self.__endpoint_url = endpoint_url
         self.__request_id = 1
-        self.__timeout = 2
+        self.__timeout = 5
+        self.__global_api_version_ok = False
+        # solve the chicken and egg problem
+        self.__available_api_list = ["getAvailableApiList"]
 
-    def set_timeout(self, timeout):
+    def __get_available_api_list(self):
+        status, result = self.getAvailableApiList()
+        if status:
+            self.__available_api_list = result[0]
+
+    def is_method_available(self, method):
+        """Checks if a method is currently available"""
+        return method in self.__available_api_list
+
+    def initial_checks(self):
+        """Perform initial ckecks just after remote api creation"""
+        # get initial available api list
+        self.__get_available_api_list()
+
+        # check global api version
+        status, result = self.getApplicationInfo()
+        if status:
+            api_version_str = result[1]
+            self.__global_api_version_ok = \
+                StrictVersion(api_version_str) >= StrictVersion(MINIMUM_API_VERSION)
+            logging.info("Api name: " + result[0] + ", Api version: " + api_version_str)
+            logging.debug("Api version OK ? " + str(self.__global_api_version_ok))
+
+        # update method versions
+        status, result = self.getVersions()
+        if status:
+            # get highest supported api version
+            api_version = sorted(result[0], key=StrictVersion)[-1]
+            logging.info("api version chosen: %s" % (api_version,))
+            status, result = self.getMethodTypes(apiVersion=api_version)
+            if status:
+                for method_list in result:
+                    method_name = method_list[0]
+                    new_version = method_list[-1]
+                    try:
+                        current_version = CameraRemoteApi.__METHODS[method_name]["version"]
+                    except KeyError:
+                        logging.error("unknown %s method" % (method_name,))
+                        continue
+                    if StrictVersion(new_version) > StrictVersion(current_version):
+                        CameraRemoteApi.__METHODS[method_name]["version"] = new_version
+                        logging.debug("updating %s method version : %s -> %s" %
+                                  (method_name, current_version, new_version))
+
+    def set_default_timeout(self, timeout):
         self.__timeout = timeout
 
     def __getattr__(self, name):
-        if name in CameraRemoteApi.__METHODS:
-            return partial(self.__trunk, name)
-        else:
-            raise AttributeError("Attribute %s not found" % (name,))
+        """Used for getting api methods"""
+        error_msg = ""
+        if name not in self.__available_api_list:
+            error_msg = "method %s not in available api list" % (name,)
+        elif name not in CameraRemoteApi.__METHODS:
+            error_msg = "unknown %s method" % (name,)
+        if error_msg != "":
+            logging.error(error_msg)
+            name = None
+        return partial(self.__trunk, name)
 
     def __trunk(self, name, *args, **kwargs):
-        #check that the function exists in the service
+        if name is None:
+            # the method is not available
+            return True, None
         method = CameraRemoteApi.__METHODS[name]
         params = method["params"]
-        if len(args) != 0 or len(kwargs) > len(params):
-            raise Exception('wrong number of parameters')
-        by_order = method.get("by_order", True)
 
-        #param checks
+        # checks param numbers
+        timeout = self.__timeout
+        args_len = len(args)
+        if 0 <= args_len <= 1:
+            if args_len  == 1:
+                timeout = args[0]
+        else:
+            logging.error("%d parameters for %s method" % (args_len, name))
+            return False, "wrong number of parameters"
+        kwargs_len = len(kwargs)
+        if kwargs_len  > len(params):
+            logging.error("%d keyword parameters for %s method" % (kwargs_len, name))
+            return False, "wrong number of keyword parameters"
+
+        # param checks
         for param_name, param_value in kwargs.items():
             #check param name (enables optional parameters)
             if param_name not in params:
                 raise Exception("\"%s\" : unknown parameter" % (param_name,))
-            #check param value
+            # check param value
             if param_name in self.__PARAMS:
                 if param_value not in self.__PARAMS[param_name]:
                     raise ValueError("\"%s\" : unknown value" % (param_value,))
             elif param_name in self.__TYPES:
                 if type(param_value) != self.__TYPES[param_name]:
                     raise ValueError("\"%s\" : wrong type" % (param_value,))
-        #fill the "params" in the query
-        if by_order:
+        # fill the query "params" value
+        if method.get("by_order", True):
             param_items = []
             for param_name, param_value in kwargs.items():
                 param_items.append(param_value)
@@ -464,21 +548,26 @@ class CameraRemoteApi(object):
         self.__request_id += 1
 
         data_json = json.dumps(data)
+        logging.debug("called > %s" % (data_json,))
         headers = {'content-type': 'application/json'}
-        req = urllib2.Request(self.__endpoint_url, data_json, headers)
-        resp_json = urllib2.urlopen(req, timeout=self.__timeout).read()
-        resp = json.loads(resp_json)
+        req = urllib.request.Request(self.__endpoint_url, data_json.encode("ascii"), headers)
+        try:
+            resp_json = urllib.request.urlopen(req, None, timeout).read()
+        except (socket.timeout, urllib.error.URLError):
+            return False, "timeout"
+        resp = json.loads(resp_json.decode("ascii"))
+        logging.debug("received < %s" % (resp,))
 
-        if req_id != req_id:
+        if resp["id"] != req_id:
             raise Exception("bad id")
 
-        if "result" in resp:
-            #print resp["result"]
-            return True, resp["result"]
-        if "results" in resp:
-            #print resp["results"]
-            return True, resp["results"]
+        if "result" in resp or "results" in resp:
+            if method.get("available_api_list_changed", False):
+                self.__get_available_api_list()
+            if "result" in resp:
+                return True, resp["result"]
+            else:
+                return True, resp["results"]
 
         if "error" in resp:
-           #print("code: %d, error \"%s\"" % tuple(resp["error"]))
-            return False, tuple(resp["error"])[1]
+            return False, tuple(resp["error"])

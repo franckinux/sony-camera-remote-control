@@ -1,39 +1,44 @@
-#/usr/bin/python2
 # -*- coding: utf-8 -*-
 
+import gi
+gi.require_version("GUPnP", "1.0")
 from gi.repository import GLib, GUPnP
-from cameraremoteapi import CameraRemoteApi
-import urllib2
-from urlparse import urljoin
+import urllib.request
+import urllib.parse
 from xml.etree.ElementTree import XML, XMLParser
 from xmlutils import StripNamespace
-#import pdb; pdb.set_trace()
+
+from cameraremoteapi import CameraRemoteApi
+from utils import debug_trace
 
 class CameraRemoteControl(object):
 
-    def __init__(self, friendly_name):
-        self.friendly_name = friendly_name
-        self.camera_remote_api = None
+    def __init__(self, friendly_name, callback):
+        self.__friendly_name = friendly_name
+        self.__device_available_callback = callback
 
         ctx = GUPnP.Context.new(None, None, 0)
+        # caution : keep cp as an attribute !
         self.cp = GUPnP.ControlPoint.new(ctx, "upnp:rootdevice")
         self.cp.set_active(True)
-        self.cp.connect("device-proxy-available", self.device_available)
-        self.cp.connect("service-proxy-available", self.service_available)
+        self.cp.connect("device-proxy-available", self.__device_available)
+        self.cp.connect("service-proxy-available", self.__service_available)
 
-    def service_available (self, cp, proxy):
-        print "coucou"
+    def __service_available(self, cp, proxy):
+        # not called !
+        pass
 
-    def device_available (self, cp, proxy):
-        print ("Found " + proxy.get_friendly_name())
-        if proxy.get_friendly_name().startswith(self.friendly_name):
+    def __device_available(self, cp, proxy):
+        proxy_friendly_name = proxy.get_friendly_name()
+        # print("Found " + proxy_friendly_name)
+        if proxy_friendly_name.startswith(self.__friendly_name):
             service = proxy.get_service("urn:schemas-sony-com:service:ScalarWebAPI:1")
             if service is not None:
 
                 #browse the xml location file and search for the camera service
                 #and set the action list uri
                 location = proxy.get_location()
-                xd = urllib2.urlopen(location)
+                xd = urllib.request.urlopen(location)
                 s = xd.read()
 
                 target = StripNamespace()
@@ -47,13 +52,6 @@ class CameraRemoteControl(object):
                         camera_action_list = s.find("X_ScalarWebAPI_ActionList_URL").text
                         if not camera_action_list.endswith('/'):
                             camera_action_list += '/'
-                        endpoint_url = urljoin(camera_action_list, CameraRemoteApi.SERVICE_NAME)
-                        self.camera_remote_api = CameraRemoteApi(endpoint_url)
+                        endpoint_url = urllib.parse.urljoin(camera_action_list, CameraRemoteApi.SERVICE_NAME)
+                        self.__device_available_callback(proxy_friendly_name, endpoint_url)
                         break
-
-if __name__ == "__main__":
-    app = CameraRemoteControl("ILCE")
-    try:
-        GLib.MainLoop().run()
-    except KeyboardInterrupt:
-        pass
