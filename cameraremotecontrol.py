@@ -2,14 +2,15 @@
 
 import gi
 gi.require_version("GUPnP", "1.0")
-from gi.repository import GLib, GUPnP
+from gi.repository import GUPnP
 import urllib.request
 import urllib.parse
 from xml.etree.ElementTree import XML, XMLParser
 from xmlutils import StripNamespace
 
 from cameraremoteapi import CameraRemoteApi
-from utils import debug_trace
+# from utils import debug_trace
+
 
 class CameraRemoteControl(object):
 
@@ -35,8 +36,8 @@ class CameraRemoteControl(object):
             service = proxy.get_service("urn:schemas-sony-com:service:ScalarWebAPI:1")
             if service is not None:
 
-                #browse the xml location file and search for the camera service
-                #and set the action list uri
+                # browse the xml location file and search for the camera service
+                # and set the action list uri
                 location = proxy.get_location()
                 xd = urllib.request.urlopen(location)
                 s = xd.read()

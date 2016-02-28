@@ -1,16 +1,14 @@
-#/usr/bin/python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import json
 import logging
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
 import sys
-import time
 
 from cameraremoteapi import CameraRemoteApi
 from cameraremotecontrol import CameraRemoteControl
-from utils import debug_trace
+# from utils import debug_trace
 from utils import lower_first_letter
 from utils import upper_first_letter
 
@@ -43,14 +41,14 @@ class Event(QtCore.QObject):
                     key = item["type"]
                     ckey = upper_first_letter(key)
                     values = {}
-                    values["Current"] = item["current"+ckey]
+                    values["Current"] = item["current" + ckey]
                     try:
-                        values["Candidates"] = item[key+"Candidates"]
+                        values["Candidates"] = item[key + "Candidates"]
                     except KeyError:
                         try:
-                            min_ = item["min"+ckey]
-                            max_ = item["max"+ckey]
-                            step = item["stepIndexOf"+ckey]
+                            min_ = item["min" + ckey]
+                            max_ = item["max" + ckey]
+                            step = item["stepIndexOf" + ckey]
                             value = min_
                             candidates = []
                             while value <= max_:
@@ -76,7 +74,7 @@ class Event(QtCore.QObject):
 
 class CameraRemote(QtGui.QMainWindow):
 
-    def __init__(self, parent = None):
+    def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
 
         self.__init_ui()
@@ -116,7 +114,7 @@ class CameraRemote(QtGui.QMainWindow):
                     # self.log(str(current_value))
 
     def __device_available_callback(self, device_name, endpoint_url):
-        logging.debug("device %s is connected" % (device_name ),)
+        logging.debug("device %s is connected" % (device_name),)
 
         camera_remote_api = CameraRemoteApi(endpoint_url)
         self.__camera_remote_api = camera_remote_api
@@ -142,7 +140,7 @@ class CameraRemote(QtGui.QMainWindow):
         function_name = str(sender.objectName())
         param_name = lower_first_letter(function_name)
         value = sender.currentText()
-        type_ = self.__EXPOSURE[function_name ]["type"]
+        type_ = self.__EXPOSURE[function_name]["type"]
         value = type_(value)
 
         function_name = "set" + function_name
@@ -165,7 +163,7 @@ class CameraRemote(QtGui.QMainWindow):
 
         self.__text = QtGui.QTextBrowser(self)
 
-        #--- Exposure tab
+        # --- Exposure tab
         self.__EXPOSURE = {
             "ExposureCompensation": {
                 "position": (0, 0),
@@ -220,15 +218,15 @@ class CameraRemote(QtGui.QMainWindow):
 #        layout_exposure.setRowStretch(1, 1)
 #        layout_exposure.setRowStretch(2, 10)
 
-        #--- Focus tab
+        # --- Focus tab
 
-        #--- Shoot tab
+        # --- Shoot tab
         self.label = QtGui.QLabel()
         pixmap = QtGui.QPixmap(640, 480)
         pixmap.fill(Qt.red)
         self.label.setPixmap(pixmap)
 
-        #---Test tab
+        # ---Test tab
         button_start = QtGui.QPushButton("start")
         button_stop = QtGui.QPushButton("stop")
         layout_test = QtGui.QHBoxLayout()
@@ -241,7 +239,7 @@ class CameraRemote(QtGui.QMainWindow):
         button_start.clicked.connect(self.__start_action)
         button_stop.clicked.connect(self.__stop_action)
 
-        #---
+        # ---
 
         tabs = QtGui.QTabWidget()
         tabs.addTab(widget_exposure, "Exposure")
@@ -252,7 +250,7 @@ class CameraRemote(QtGui.QMainWindow):
         layout.addWidget(tabs, 0, 0)
         layout.addWidget(self.__text, 1, 0)
 
-        #create a window and add the layout
+        # create a window and add the layout
         window = QtGui.QWidget()
         window.setLayout(layout)
 

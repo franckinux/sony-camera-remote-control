@@ -7,7 +7,7 @@ import logging
 import socket
 import urllib
 
-from utils import debug_trace
+# from utils import debug_trace
 
 MINIMUM_API_VERSION = "2.0.0"
 
@@ -17,7 +17,7 @@ class CameraRemoteApi(object):
     SERVICE_NAME = "camera"
 
     __METHODS = {
-        #Shoot mode
+        # Shoot mode
         "setShootMode": {
             "params": ["shootMode"],
             "version": "1.0"
@@ -28,14 +28,14 @@ class CameraRemoteApi(object):
         },
         "getSupportedShootMode": {
             "params": [],
-             "version": "1.0"
+            "version": "1.0"
         },
         "getAvailableShootMode": {
             "params": [],
             "version": "1.0"
         },
 
-        #Still capture
+        # Still capture
         "actTakePicture": {
             "params": [],
             "version": "1.0"
@@ -402,7 +402,7 @@ class CameraRemoteApi(object):
         # setFlasmode
         "flashMode": ["off", "auto", "on", "slowSync", "rearSync", "wireless"],
         # setPostviewImageSize
-        "postviewImageSize": ["Original",  "2M"],
+        "postviewImageSize": ["Original", "2M"],
 
         # setShootMode
         "shootMode": ["still", "movie", "audio", "intervalstill"],
@@ -506,19 +506,19 @@ class CameraRemoteApi(object):
         timeout = self.__timeout
         args_len = len(args)
         if 0 <= args_len <= 1:
-            if args_len  == 1:
+            if args_len == 1:
                 timeout = args[0]
         else:
             logging.error("%d parameters for %s method" % (args_len, name))
             return False, "wrong number of parameters"
         kwargs_len = len(kwargs)
-        if kwargs_len  > len(params):
+        if kwargs_len > len(params):
             logging.error("%d keyword parameters for %s method" % (kwargs_len, name))
             return False, "wrong number of keyword parameters"
 
         # param checks
         for param_name, param_value in kwargs.items():
-            #check param name (enables optional parameters)
+            # check param name (enables optional parameters)
             if param_name not in params:
                 raise Exception("\"%s\" : unknown parameter" % (param_name,))
             # check param value
