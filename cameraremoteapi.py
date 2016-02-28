@@ -441,6 +441,9 @@ class CameraRemoteApi(object):
         if status:
             self.__available_api_list = result[0]
 
+    def set_available_api_list(self, available_api_list):
+        self.__available_api_list = available_api_list
+
     def is_method_available(self, method):
         """Checks if a method is currently available"""
         return method in self.__available_api_list

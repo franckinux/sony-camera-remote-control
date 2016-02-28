@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import os
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
 import sys
 
 from cameraremoteapi import CameraRemoteApi
 from cameraremotecontrol import CameraRemoteControl
-# from utils import debug_trace
 from utils import lower_first_letter
 from utils import upper_first_letter
+
+# from utils import debug_trace
 
 
 class Event(QtCore.QObject):
@@ -33,6 +35,10 @@ class Event(QtCore.QObject):
             status, result = self.__camera_remote_api.getEvent(1.0, longPollingFlag=long_polling_flag)
             # print("post event: %s, %s" % (str(status), str(result)))
             if status:
+                if result[0] is not None:
+                    available_api_list = result[0]["names"]
+                    self.__camera_remote_api.set_available_api_list(available_api_list)
+
                 data = {}
                 for index in [25, 27, 29, 32]:
                     item = result[index]
@@ -74,6 +80,23 @@ class Event(QtCore.QObject):
 
 class CameraRemote(QtGui.QMainWindow):
 
+    # --- Exposure tab
+    __EXPOSURE = {
+        "ExposureCompensation": {
+            "position": (0, 0),
+            "type": int,
+        },
+        "FNumber": {
+            "position": (0, 1),
+        },
+        "ShutterSpeed": {
+            "position": (1, 0),
+        },
+        "IsoSpeedRate": {
+            "position": (1, 1),
+        },
+    }
+
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
 
@@ -101,10 +124,10 @@ class CameraRemote(QtGui.QMainWindow):
 
     def __event_received(self, event_params):
         for event_key, event_value in event_params.items():
-            for exp in self.__EXPOSURE:
+            for exp in CameraRemote.__EXPOSURE:
                 if event_key == exp:
-                    label = self.__EXPOSURE[event_key]["Label"]
-                    combo_box = self.__EXPOSURE[event_key]["ComboBox"]
+                    label = CameraRemote.__EXPOSURE[event_key]["Label"]
+                    combo_box = CameraRemote.__EXPOSURE[event_key]["ComboBox"]
                     current_value = event_value["Current"]
                     label.setText(str(current_value))
                     combo_box.clear()
@@ -140,11 +163,10 @@ class CameraRemote(QtGui.QMainWindow):
         function_name = str(sender.objectName())
         param_name = lower_first_letter(function_name)
         value = sender.currentText()
-        type_ = self.__EXPOSURE[function_name]["type"]
+        type_ = CameraRemote.__EXPOSURE[function_name].get("type", str)
         value = type_(value)
 
         function_name = "set" + function_name
-        self.log("calling " + function_name)
         set_function = getattr(self.__camera_remote_api, function_name)
         kwargs = {param_name: value}
         set_function(**kwargs)
@@ -163,29 +185,9 @@ class CameraRemote(QtGui.QMainWindow):
 
         self.__text = QtGui.QTextBrowser(self)
 
-        # --- Exposure tab
-        self.__EXPOSURE = {
-            "ExposureCompensation": {
-                "position": (0, 0),
-                "type": int,
-            },
-            "FNumber": {
-                "position": (0, 1),
-                "type": float,
-            },
-            "ShutterSpeed": {
-                "position": (1, 0),
-                "type": int,
-            },
-            "IsoSpeedRate": {
-                "position": (1, 1),
-                "type": str,
-            },
-        }
-
         layout_exposure = QtGui.QGridLayout()
-        for exp in self.__EXPOSURE:
-            label = QtGui.QLabel("_")
+        for exp in CameraRemote.__EXPOSURE:
+            label = QtGui.QLabel("")
 
             combo_box = QtGui.QComboBox()
             combo_box.setObjectName(exp)
@@ -198,9 +200,9 @@ class CameraRemote(QtGui.QMainWindow):
             gb = QtGui.QGroupBox(exp)
             gb.setLayout(hbox_layout)
 
-            layout_exposure.addWidget(gb, *self.__EXPOSURE[exp]["position"])
-            self.__EXPOSURE[exp]["Label"] = label
-            self.__EXPOSURE[exp]["ComboBox"] = combo_box
+            layout_exposure.addWidget(gb, *CameraRemote.__EXPOSURE[exp]["position"])
+            CameraRemote.__EXPOSURE[exp]["Label"] = label
+            CameraRemote.__EXPOSURE[exp]["ComboBox"] = combo_box
 
         widget_exposure = QtGui.QWidget()
         widget_exposure.setLayout(layout_exposure)
@@ -259,7 +261,7 @@ class CameraRemote(QtGui.QMainWindow):
         self.setCentralWidget(window)
         self.setWindowTitle("Camera Remote")
 
-        self.statusBar().showMessage('Ready')
+        self.statusBar().showMessage("Ready")
 
         # x and y coordinates on the screen, width, height
         self.setGeometry(100, 100, 1030, 800)
@@ -284,8 +286,9 @@ class CameraRemote(QtGui.QMainWindow):
 
 
 def main():
+    log_filename = os.path.splitext(os.path.basename(sys.argv[0]))[0] + ".log"
     logging.basicConfig(
-        filename="cameraremote.log",
+        filename=log_filename ,
         format="%(levelname)s: %(message)s",
         level=logging.DEBUG,
         filemode='w'
