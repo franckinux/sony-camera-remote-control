@@ -3,8 +3,8 @@
 
 import logging
 import os
-from PyQt4 import QtGui, QtCore
-from PyQt4.QtCore import Qt
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import Qt
 import sys
 
 from cameraremoteapi import CameraRemoteApi
@@ -78,7 +78,7 @@ class Event(QtCore.QObject):
         return self.__is_running
 
 
-class CameraRemote(QtGui.QMainWindow):
+class CameraRemote(QtWidgets.QMainWindow):
 
     # --- Exposure tab
     __EXPOSURE = {
@@ -98,7 +98,7 @@ class CameraRemote(QtGui.QMainWindow):
     }
 
     def __init__(self, parent=None):
-        QtGui.QMainWindow.__init__(self, parent)
+        QtWidgets.QMainWindow.__init__(self, parent)
 
         self.__init_ui()
         self.__camera_remote_api = None
@@ -112,7 +112,7 @@ class CameraRemote(QtGui.QMainWindow):
     def __init_menu_bar(self):
         menubar = self.menuBar()
 
-        quit_action = QtGui.QAction("Quit", self)
+        quit_action = QtWidgets.QAction("Quit", self)
         quit_action.triggered.connect(self.close)
 
         file = menubar.addMenu("File")
@@ -183,34 +183,34 @@ class CameraRemote(QtGui.QMainWindow):
 
     def __init_ui(self):
 
-        self.__text = QtGui.QTextBrowser(self)
+        self.__text = QtWidgets.QTextBrowser(self)
 
-        layout_exposure = QtGui.QGridLayout()
+        layout_exposure = QtWidgets.QGridLayout()
         for exp in CameraRemote.__EXPOSURE:
-            label = QtGui.QLabel("")
+            label = QtWidgets.QLabel("")
 
-            combo_box = QtGui.QComboBox()
+            combo_box = QtWidgets.QComboBox()
             combo_box.setObjectName(exp)
             combo_box.activated.connect(self.__submit)
 
-            hbox_layout = QtGui.QHBoxLayout()
+            hbox_layout = QtWidgets.QHBoxLayout()
             hbox_layout.addWidget(label)
             hbox_layout.addWidget(combo_box)
 
-            gb = QtGui.QGroupBox(exp)
+            gb = QtWidgets.QGroupBox(exp)
             gb.setLayout(hbox_layout)
 
             layout_exposure.addWidget(gb, *CameraRemote.__EXPOSURE[exp]["position"])
             CameraRemote.__EXPOSURE[exp]["Label"] = label
             CameraRemote.__EXPOSURE[exp]["ComboBox"] = combo_box
 
-        widget_exposure = QtGui.QWidget()
+        widget_exposure = QtWidgets.QWidget()
         widget_exposure.setLayout(layout_exposure)
 
-        hbox = QtGui.QHBoxLayout()
+        hbox = QtWidgets.QHBoxLayout()
         hbox.addStretch(1)
         layout_exposure.addLayout(hbox, 0, 2, 2, 1)
-        vbox = QtGui.QVBoxLayout()
+        vbox = QtWidgets.QVBoxLayout()
         vbox.addStretch(1)
         layout_exposure.addLayout(vbox, 2, 0, 1, 2)
 #        layout_exposure.setColumnStretch(0, 1)
@@ -223,19 +223,19 @@ class CameraRemote(QtGui.QMainWindow):
         # --- Focus tab
 
         # --- Shoot tab
-        self.label = QtGui.QLabel()
+        self.label = QtWidgets.QLabel()
         pixmap = QtGui.QPixmap(640, 480)
         pixmap.fill(Qt.red)
         self.label.setPixmap(pixmap)
 
         # ---Test tab
-        button_start = QtGui.QPushButton("start")
-        button_stop = QtGui.QPushButton("stop")
-        layout_test = QtGui.QHBoxLayout()
+        button_start = QtWidgets.QPushButton("start")
+        button_stop = QtWidgets.QPushButton("stop")
+        layout_test = QtWidgets.QHBoxLayout()
         layout_test.addWidget(button_start)
         layout_test.addWidget(button_stop)
 
-        widget_test = QtGui.QWidget()
+        widget_test = QtWidgets.QWidget()
         widget_test.setLayout(layout_test)
 
         button_start.clicked.connect(self.__start_action)
@@ -243,17 +243,17 @@ class CameraRemote(QtGui.QMainWindow):
 
         # ---
 
-        tabs = QtGui.QTabWidget()
+        tabs = QtWidgets.QTabWidget()
         tabs.addTab(widget_exposure, "Exposure")
         tabs.addTab(self.label, "Shoot")
         tabs.addTab(widget_test, "Test")
 
-        layout = QtGui.QGridLayout()
+        layout = QtWidgets.QGridLayout()
         layout.addWidget(tabs, 0, 0)
         layout.addWidget(self.__text, 1, 0)
 
         # create a window and add the layout
-        window = QtGui.QWidget()
+        window = QtWidgets.QWidget()
         window.setLayout(layout)
 
         self.__init_menu_bar()
@@ -288,14 +288,14 @@ class CameraRemote(QtGui.QMainWindow):
 def main():
     log_filename = os.path.splitext(os.path.basename(sys.argv[0]))[0] + ".log"
     logging.basicConfig(
-        filename=log_filename ,
+        filename=log_filename,
         format="%(levelname)s: %(message)s",
         level=logging.DEBUG,
         filemode='w'
     )
     logging.info("started")
 
-    app = QtGui.QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
 
     camera_remote = CameraRemote()
     camera_remote.show()
