@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 
+import aiohttp
 from distutils.version import StrictVersion
 from functools import partial
 import json
 import logging
-import socket
-import urllib
+# import socket
+# import urllib
 
-# from utils import debug_trace
+from utils import debug_trace
 
 MINIMUM_API_VERSION = "2.0.0"
+
+logger = logging.getLogger("cameraremote")
+
+
+class CameraRemoteApiException(Exception):
+    pass
 
 
 class CameraRemoteApi(object):
@@ -428,18 +435,19 @@ class CameraRemoteApi(object):
         "apiVersion": str,
     }
 
-    def __init__(self, endpoint_url):
+    def __init__(self, endpoint_url, loop):
         self.__endpoint_url = endpoint_url
+        self.__session = aiohttp.ClientSession(loop=loop)
+
         self.__request_id = 1
         self.__timeout = 5
         self.__global_api_version_ok = False
         # solve the chicken and egg problem
         self.__available_api_list = ["getAvailableApiList"]
 
-    def __get_available_api_list(self):
-        status, result = self.getAvailableApiList()
-        if status:
-            self.__available_api_list = result[0]
+    async def __get_available_api_list(self):
+        result = await self.getAvailableApiList()
+        self.__available_api_list = result[0]
 
     def set_available_api_list(self, available_api_list):
         self.__available_api_list = available_api_list
@@ -448,40 +456,37 @@ class CameraRemoteApi(object):
         """Checks if a method is currently available"""
         return method in self.__available_api_list
 
-    def initial_checks(self):
+    async def initial_checks(self):
         """Perform initial ckecks just after remote api creation"""
         # get initial available api list
-        self.__get_available_api_list()
+        await self.__get_available_api_list()
 
         # check global api version
-        status, result = self.getApplicationInfo()
-        if status:
-            api_version_str = result[1]
-            self.__global_api_version_ok = \
-                StrictVersion(api_version_str) >= StrictVersion(MINIMUM_API_VERSION)
-            logging.info("Api name: " + result[0] + ", Api version: " + api_version_str)
-            logging.debug("Api version OK ? " + str(self.__global_api_version_ok))
+        result = await self.getApplicationInfo()
+        api_version_str = result[1]
+        self.__global_api_version_ok = \
+            StrictVersion(api_version_str) >= StrictVersion(MINIMUM_API_VERSION)
+        logger.info("Api name: " + result[0] + ", Api version: " + api_version_str)
+        logger.debug("Api version OK ? " + str(self.__global_api_version_ok))
 
         # update method versions
-        status, result = self.getVersions()
-        if status:
-            # get highest supported api version
-            api_version = sorted(result[0], key=StrictVersion)[-1]
-            logging.info("api version chosen: %s" % (api_version,))
-            status, result = self.getMethodTypes(apiVersion=api_version)
-            if status:
-                for method_list in result:
-                    method_name = method_list[0]
-                    new_version = method_list[-1]
-                    try:
-                        current_version = CameraRemoteApi.__METHODS[method_name]["version"]
-                    except KeyError:
-                        logging.error("unknown %s method" % (method_name,))
-                        continue
-                    if StrictVersion(new_version) > StrictVersion(current_version):
-                        CameraRemoteApi.__METHODS[method_name]["version"] = new_version
-                        logging.debug("updating %s method version : %s -> %s" %
-                                  (method_name, current_version, new_version))
+        result = await self.getVersions()
+        # get highest supported api version
+        api_version = sorted(result[0], key=StrictVersion)[-1]
+        logger.info("api version chosen: %s" % (api_version,))
+        result = await self.getMethodTypes(apiVersion=api_version)
+        for method_list in result:
+            method_name = method_list[0]
+            new_version = method_list[-1]
+            try:
+                current_version = CameraRemoteApi.__METHODS[method_name]["version"]
+            except KeyError:
+                logger.error("unknown %s method" % (method_name,))
+                continue
+            if StrictVersion(new_version) > StrictVersion(current_version):
+                CameraRemoteApi.__METHODS[method_name]["version"] = new_version
+                logger.debug("updating %s method version : %s -> %s" %
+                          (method_name, current_version, new_version))
 
     def set_default_timeout(self, timeout):
         self.__timeout = timeout
@@ -494,14 +499,28 @@ class CameraRemoteApi(object):
         elif name not in CameraRemoteApi.__METHODS:
             error_msg = "unknown %s method" % (name,)
         if error_msg != "":
-            logging.error(error_msg)
+            logger.error(error_msg)
             name = None
         return partial(self.__trunk, name)
 
-    def __trunk(self, name, *args, **kwargs):
+    async def __get_response(self, data, headers):
+        try:
+            response = await self.__session.post(self.__endpoint_url,
+                                                 data=data.encode("ascii"),
+                                                 headers=headers)
+            if response.status == 200:
+                resp = await response.json()
+                logger.debug("received < %s" % (resp,))
+            else:
+                raise CameraRemoteApiException("http error %d" % (response.status,))
+        finally:
+            response.release()
+        return resp
+
+    async def __trunk(self, name, *args, **kwargs):
         if name is None:
-            # the method is not available
-            return True, None
+            # the method is not available : fail silently
+            return None
         method = CameraRemoteApi.__METHODS[name]
         params = method["params"]
 
@@ -512,12 +531,12 @@ class CameraRemoteApi(object):
             if args_len == 1:
                 timeout = args[0]
         else:
-            logging.error("%d parameters for %s method" % (args_len, name))
-            return False, "wrong number of parameters"
+            logger.error("%d parameters for %s method" % (args_len, name))
+            raise CameraRemoteApiException("wrong number of parameters")
         kwargs_len = len(kwargs)
         if kwargs_len > len(params):
-            logging.error("%d keyword parameters for %s method" % (kwargs_len, name))
-            return False, "wrong number of keyword parameters"
+            logger.error("%d keyword parameters for %s method" % (kwargs_len, name))
+            raise CameraRemoteApiException("wrong number of keyword parameters")
 
         # param checks
         for param_name, param_value in kwargs.items():
@@ -551,26 +570,27 @@ class CameraRemoteApi(object):
         self.__request_id += 1
 
         data_json = json.dumps(data)
-        logging.debug("called > %s" % (data_json,))
+        logger.debug("called > %s" % (data_json,))
         headers = {'content-type': 'application/json'}
-        req = urllib.request.Request(self.__endpoint_url, data_json.encode("ascii"), headers)
-        try:
-            resp_json = urllib.request.urlopen(req, None, timeout).read()
-        except (socket.timeout, urllib.error.URLError):
-            return False, "timeout"
-        resp = json.loads(resp_json.decode("ascii"))
-        logging.debug("received < %s" % (resp,))
+        if timeout is None:
+            resp = await self.__get_response(data_json, headers)
+        else:
+            with aiohttp.Timeout(timeout):
+                resp = await self.__get_response(data_json, headers)
 
         if resp["id"] != req_id:
-            raise Exception("bad id")
+            raise CameraRemoteApiException("bad id")
 
         if "result" in resp or "results" in resp:
             if method.get("available_api_list_changed", False):
-                self.__get_available_api_list()
+                await self.__get_available_api_list()
             if "result" in resp:
-                return True, resp["result"]
+                return resp["result"]
             else:
-                return True, resp["results"]
+                return resp["results"]
 
         if "error" in resp:
-            return False, tuple(resp["error"])
+            raise CameraRemoteApiException(resp["error"][1])
+
+    def close(self):
+        self.__session.close()

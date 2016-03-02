@@ -1,81 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import asyncio
 import logging
 import os
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from quamash import QEventLoop, QThreadExecutor
 import sys
 
-from cameraremoteapi import CameraRemoteApi
+from cameraremoteapi import CameraRemoteApi, CameraRemoteApiException
 from cameraremotecontrol import CameraRemoteControl
 from utils import lower_first_letter
 from utils import upper_first_letter
 
-# from utils import debug_trace
-
-
-class Event(QtCore.QObject):
-    finished = QtCore.pyqtSignal()
-    event_happened = QtCore.pyqtSignal(dict)
-
-    def __init__(self, camera_remote_api):
-        self.__camera_remote_api = camera_remote_api
-
-        self.__want_to_stop = False
-        self.__is_running = False
-        QtCore.QObject.__init__(self)
-
-    def worker(self):
-        self.__is_running = True
-        self.__want_to_stop = False
-
-        long_polling_flag = False
-        while not self.__want_to_stop:
-            status, result = self.__camera_remote_api.getEvent(1.0, longPollingFlag=long_polling_flag)
-            # print("post event: %s, %s" % (str(status), str(result)))
-            if status:
-                if result[0] is not None:
-                    available_api_list = result[0]["names"]
-                    self.__camera_remote_api.set_available_api_list(available_api_list)
-
-                data = {}
-                for index in [25, 27, 29, 32]:
-                    item = result[index]
-                    if type(item) != dict:
-                        continue
-                    key = item["type"]
-                    ckey = upper_first_letter(key)
-                    values = {}
-                    values["Current"] = item["current" + ckey]
-                    try:
-                        values["Candidates"] = item[key + "Candidates"]
-                    except KeyError:
-                        try:
-                            min_ = item["min" + ckey]
-                            max_ = item["max" + ckey]
-                            step = item["stepIndexOf" + ckey]
-                            value = min_
-                            candidates = []
-                            while value <= max_:
-                                candidates.append(str(value))
-                                value += step
-                            values["Candidates"] = candidates
-                        except KeyError:
-                            continue
-                    data[ckey] = values
-                if len(data) != 0:
-                    self.event_happened.emit(data)
-            long_polling_flag = True
-
-        self.__is_running = False
-        self.finished.emit()
-
-    def stop(self):
-        self.__want_to_stop = True
-
-    def is_running(self):
-        return self.__is_running
+from utils import debug_trace
 
 
 class CameraRemote(QtWidgets.QMainWindow):
@@ -102,57 +41,87 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         self.__init_ui()
         self.__camera_remote_api = None
-        self.__camera_remote_control = CameraRemoteControl("ILCE", self.__device_available_callback)
+        self.__camera_remote_control = CameraRemoteControl("ILCE",
+                                                           self.__device_available_callback,
+                                                           loop)
 
-        self.__event = None
-        self.__thread = None
+        # self.__event = None
+        # self.__thread = None
 
-        self.__want_to_close = False
+        # self.__want_to_close = False
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
 
         quit_action = QtWidgets.QAction("Quit", self)
-        quit_action.triggered.connect(self.close)
+        quit_action.triggered.connect(self.pre_close)
 
         file = menubar.addMenu("File")
         file.addAction(quit_action)
+
+    async def worker(self):
+        # self.__is_running = True
+        self.__want_to_stop = False
+
+        long_polling_flag = False
+        while not self.__want_to_stop:
+            result = await self.__camera_remote_api.getEvent(1000, longPollingFlag=long_polling_flag)
+            if result[0] is not None:
+                available_api_list = result[0]["names"]
+                self.__camera_remote_api.set_available_api_list(available_api_list)
+
+            data = {}
+            for index in [25, 27, 29, 32]:
+                item = result[index]
+                if type(item) != dict:
+                    continue
+                key = item["type"]
+                ckey = upper_first_letter(key)
+                values = {}
+                values["Current"] = item["current" + ckey]
+                try:
+                    values["Candidates"] = item[key + "Candidates"]
+                except KeyError:
+                    try:
+                        min_ = item["min" + ckey]
+                        max_ = item["max" + ckey]
+                        step = item["stepIndexOf" + ckey]
+                        value = min_
+                        candidates = []
+                        while value <= max_:
+                            candidates.append(str(value))
+                            value += step
+                        values["Candidates"] = candidates
+                    except KeyError:
+                        continue
+                data[ckey] = values
+            # TODO : put that elsewhere !
+            if len(data) != 0:
+                for event_key, event_value in data.items():
+                    for exp in CameraRemote.__EXPOSURE:
+                        if event_key == exp:
+                            label = CameraRemote.__EXPOSURE[event_key]["Label"]
+                            combo_box = CameraRemote.__EXPOSURE[event_key]["ComboBox"]
+                            current_value = event_value["Current"]
+                            label.setText(str(current_value))
+                            combo_box.clear()
+                            for choice in event_value["Candidates"]:
+                                combo_box.addItem(choice)
+            long_polling_flag = True
 
     def log(self, text):
         # NOTE : gui available ?
         self.__text.insertPlainText(text + '\n')
 
-    def __event_received(self, event_params):
-        for event_key, event_value in event_params.items():
-            for exp in CameraRemote.__EXPOSURE:
-                if event_key == exp:
-                    label = CameraRemote.__EXPOSURE[event_key]["Label"]
-                    combo_box = CameraRemote.__EXPOSURE[event_key]["ComboBox"]
-                    current_value = event_value["Current"]
-                    label.setText(str(current_value))
-                    combo_box.clear()
-                    for choice in event_value["Candidates"]:
-                        combo_box.addItem(choice)
+    async def __device_available_callback(self, device_name, endpoint_url):
+        logger.debug("device %s is connected" % (device_name,))
 
-                    # self.log(str(current_value))
-
-    def __device_available_callback(self, device_name, endpoint_url):
-        logging.debug("device %s is connected" % (device_name),)
-
-        camera_remote_api = CameraRemoteApi(endpoint_url)
+        camera_remote_api = CameraRemoteApi(endpoint_url, loop)
         self.__camera_remote_api = camera_remote_api
-        camera_remote_api.initial_checks()
-
-        self.__event = Event(camera_remote_api)
-        self.__thread = QtCore.QThread()
-        self.__event.moveToThread(self.__thread)
-        self.__event.finished.connect(self.__thread_finished)
-        self.__event.event_happened.connect(self.__event_received)
-        self.__thread.started.connect(self.__event.worker)
-
-        self.__camera_remote_api.startRecMode()
-
-        self.__thread.start()
+        # TODO : wait
+        await camera_remote_api.initial_checks()
+        await camera_remote_api.startRecMode()
+        self.event_future = asyncio.ensure_future(self.worker())
 
     def __submit(self):
         if self.__camera_remote_api is None:
@@ -169,17 +138,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         function_name = "set" + function_name
         set_function = getattr(self.__camera_remote_api, function_name)
         kwargs = {param_name: value}
-        set_function(**kwargs)
-
-    def __start_action(self):
-        if self.__event is not None:
-            self.log("start")
-            self.__thread.start()
-
-    def __stop_action(self):
-        if self.__event is not None:
-            self.__event.stop()
-            self.log("stop")
+        asyncio.ensure_future(set_function(**kwargs))
 
     def __init_ui(self):
 
@@ -238,8 +197,8 @@ class CameraRemote(QtWidgets.QMainWindow):
         widget_test = QtWidgets.QWidget()
         widget_test.setLayout(layout_test)
 
-        button_start.clicked.connect(self.__start_action)
-        button_stop.clicked.connect(self.__stop_action)
+        # button_start.clicked.connect(self.__start_action)
+        # button_stop.clicked.connect(self.__stop_action)
 
         # ---
 
@@ -266,41 +225,41 @@ class CameraRemote(QtWidgets.QMainWindow):
         # x and y coordinates on the screen, width, height
         self.setGeometry(100, 100, 1030, 800)
 
-    def __thread_finished(self):
-        self.__thread.quit()
-        if self.__want_to_close:
-            self.__want_to_close = False
-            self.close()
+    def pre_close(self):
+        if self.__camera_remote_api is not None:
+            stop_future = asyncio.ensure_future(self.__camera_remote_api.stopRecMode())
+            stop_future.add_done_callback(self.pre_close_callback)
+
+    def pre_close_callback(self, f):
+        self.close()
 
     def closeEvent(self, event):
-        if self.__event is not None:
-            if self.__event.is_running():
-                self.__event.stop()
-                self.__want_to_close = True
-                event.ignore()
-                return
-        if self.__camera_remote_api is not None:
-            self.__camera_remote_api.stopRecMode()
-        logging.info("finished")
+        self.event_future.cancel()
+        self.__camera_remote_api.close()
+        logger.info("finished")
         event.accept()
 
 
-def main():
-    log_filename = os.path.splitext(os.path.basename(sys.argv[0]))[0] + ".log"
-    logging.basicConfig(
-        filename=log_filename,
-        format="%(levelname)s: %(message)s",
-        level=logging.DEBUG,
-        filemode='w'
-    )
-    logging.info("started")
+app = QtWidgets.QApplication(sys.argv)
+loop = QEventLoop(app)
+loop.set_debug(False)
+asyncio.set_event_loop(loop)
 
-    app = QtWidgets.QApplication(sys.argv)
+camera_remote = CameraRemote()
+camera_remote.show()
 
-    camera_remote = CameraRemote()
-    camera_remote.show()
+logger = logging.getLogger("cameraremote")
+file_handler = logging.FileHandler(filename="cameraremote.log", mode='w')
+formatter = logging.Formatter("%(levelname)-8s %(message)s")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+logger.setLevel(logging.DEBUG)
 
+try:
     sys.exit(app.exec_())
+finally:
+    loop.close()
+    file_handler.close()
 
-if __name__ == "__main__":
-    main()
+# with loop:
+#     loop.run_until_complete(app.exec_())

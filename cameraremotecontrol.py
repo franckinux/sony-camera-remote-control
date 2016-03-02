@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import gi
 gi.require_version("GUPnP", "1.0")
 from gi.repository import GUPnP
@@ -14,22 +15,21 @@ from cameraremoteapi import CameraRemoteApi
 
 class CameraRemoteControl(object):
 
-    def __init__(self, friendly_name, callback):
+    def __init__(self, friendly_name, callback, loop):
         self.__friendly_name = friendly_name
         self.__device_available_callback = callback
+        self.__loop = loop
 
         ctx = GUPnP.Context.new(None, None, 0)
         # caution : keep cp as an attribute !
         self.cp = GUPnP.ControlPoint.new(ctx, "upnp:rootdevice")
         self.cp.set_active(True)
-        self.cp.connect("device-proxy-available", self.__device_available)
-        self.cp.connect("service-proxy-available", self.__service_available)
+        self.cp.connect("device-proxy-available", self.__device_available_exec)
 
-    def __service_available(self, cp, proxy):
-        # not called !
-        pass
+    def __device_available_exec(self, cp, proxy):
+        asyncio.ensure_future(self.__device_available(cp, proxy))
 
-    def __device_available(self, cp, proxy):
+    async def __device_available(self, cp, proxy):
         proxy_friendly_name = proxy.get_friendly_name()
         # print("Found " + proxy_friendly_name)
         if proxy_friendly_name.startswith(self.__friendly_name):
@@ -54,5 +54,5 @@ class CameraRemoteControl(object):
                         if not camera_action_list.endswith('/'):
                             camera_action_list += '/'
                         endpoint_url = urllib.parse.urljoin(camera_action_list, CameraRemoteApi.SERVICE_NAME)
-                        self.__device_available_callback(proxy_friendly_name, endpoint_url)
+                        await self.__device_available_callback(proxy_friendly_name, endpoint_url)
                         break
