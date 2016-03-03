@@ -3,18 +3,18 @@
 
 import asyncio
 import logging
-import os
-from PyQt5 import QtCore, QtGui, QtWidgets
+# import os
+from PyQt5 import QtGui, QtWidgets  # , QtCore
 from PyQt5.QtCore import Qt
-from quamash import QEventLoop, QThreadExecutor
+from quamash import QEventLoop  # , QThreadExecutor
 import sys
 
-from cameraremoteapi import CameraRemoteApi, CameraRemoteApiException
+from cameraremoteapi import CameraRemoteApi  # , CameraRemoteApiException
 from cameraremotecontrol import CameraRemoteControl
 from utils import lower_first_letter
 from utils import upper_first_letter
 
-from utils import debug_trace
+# from utils import debug_trace
 
 
 class CameraRemote(QtWidgets.QMainWindow):
@@ -41,14 +41,12 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         self.__init_ui()
         self.__camera_remote_api = None
-        self.__camera_remote_control = CameraRemoteControl("ILCE",
-                                                           self.__device_available_callback,
-                                                           loop)
+        self.__camera_remote_control = CameraRemoteControl(
+            "ILCE",
+            self.__device_available_callback
+        )
 
-        # self.__event = None
-        # self.__thread = None
-
-        # self.__want_to_close = False
+        self.event_future = None
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
@@ -56,16 +54,13 @@ class CameraRemote(QtWidgets.QMainWindow):
         quit_action = QtWidgets.QAction("Quit", self)
         quit_action.triggered.connect(self.pre_close)
 
-        file = menubar.addMenu("File")
-        file.addAction(quit_action)
+        file_ = menubar.addMenu("File")
+        file_.addAction(quit_action)
 
     async def worker(self):
-        # self.__is_running = True
-        self.__want_to_stop = False
-
         long_polling_flag = False
-        while not self.__want_to_stop:
-            result = await self.__camera_remote_api.getEvent(1000, longPollingFlag=long_polling_flag)
+        while True:
+            result = await self.__camera_remote_api.getEvent(None, longPollingFlag=long_polling_flag)
             if result[0] is not None:
                 available_api_list = result[0]["names"]
                 self.__camera_remote_api.set_available_api_list(available_api_list)
@@ -109,16 +104,11 @@ class CameraRemote(QtWidgets.QMainWindow):
                                 combo_box.addItem(choice)
             long_polling_flag = True
 
-    def log(self, text):
-        # NOTE : gui available ?
-        self.__text.insertPlainText(text + '\n')
-
     async def __device_available_callback(self, device_name, endpoint_url):
         logger.debug("device %s is connected" % (device_name,))
 
         camera_remote_api = CameraRemoteApi(endpoint_url, loop)
         self.__camera_remote_api = camera_remote_api
-        # TODO : wait
         await camera_remote_api.initial_checks()
         await camera_remote_api.startRecMode()
         self.event_future = asyncio.ensure_future(self.worker())
@@ -141,9 +131,6 @@ class CameraRemote(QtWidgets.QMainWindow):
         asyncio.ensure_future(set_function(**kwargs))
 
     def __init_ui(self):
-
-        self.__text = QtWidgets.QTextBrowser(self)
-
         layout_exposure = QtWidgets.QGridLayout()
         for exp in CameraRemote.__EXPOSURE:
             label = QtWidgets.QLabel("")
@@ -209,7 +196,6 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         layout = QtWidgets.QGridLayout()
         layout.addWidget(tabs, 0, 0)
-        layout.addWidget(self.__text, 1, 0)
 
         # create a window and add the layout
         window = QtWidgets.QWidget()
@@ -234,8 +220,10 @@ class CameraRemote(QtWidgets.QMainWindow):
         self.close()
 
     def closeEvent(self, event):
-        self.event_future.cancel()
-        self.__camera_remote_api.close()
+        if self.event_future is not None:
+            self.event_future.cancel()
+        if self.__camera_remote_api is not None:
+            self.__camera_remote_api.close()
         logger.info("finished")
         event.accept()
 
@@ -254,12 +242,10 @@ formatter = logging.Formatter("%(levelname)-8s %(message)s")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
+logger.info("startted")
 
 try:
     sys.exit(app.exec_())
 finally:
     loop.close()
     file_handler.close()
-
-# with loop:
-#     loop.run_until_complete(app.exec_())
