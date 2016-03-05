@@ -11,9 +11,9 @@ import sys
 
 from cameraremoteapi import CameraRemoteApi  # , CameraRemoteApiException
 from cameraremotecontrol import CameraRemoteControl
-# from utils import lower_first_letter
+from utils import upper_first_letter
 
-from utils import debug_trace
+# from utils import debug_trace
 
 
 class CameraRemote(QtWidgets.QMainWindow):
@@ -53,7 +53,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         menubar = self.menuBar()
 
         quit_action = QtWidgets.QAction("Quit", self)
-        quit_action.triggered.connect(self.pre_close)
+        quit_action.triggered.connect(self.__pre_close)
 
         file_ = menubar.addMenu("File")
         file_.addAction(quit_action)
@@ -85,14 +85,16 @@ class CameraRemote(QtWidgets.QMainWindow):
             return
 
         sender = self.sender()
-        function_name = str(sender.objectName())
-        param_name = function_name
+        object_name = str(sender.objectName())
         value = sender.currentText()
-        type_ = self.__EXPOSURE[function_name].get("type", str)
+        logger.info("set %s parameter to %s" % (object_name, value))
+
+        type_ = self.__EXPOSURE[object_name].get("type", str)
         value = type_(value)
 
-        set_function = getattr(self.__camera_remote_api, "set" + function_name)
-        kwargs = {param_name: value}
+        function_name = "set" + upper_first_letter(object_name)
+        set_function = getattr(self.__camera_remote_api, function_name)
+        kwargs = {object_name: value}
         asyncio.ensure_future(set_function(**kwargs))
 
     def __init_ui(self):
@@ -176,12 +178,12 @@ class CameraRemote(QtWidgets.QMainWindow):
         # x and y coordinates on the screen, width, height
         self.setGeometry(100, 100, 1030, 800)
 
-    def pre_close(self):
+    def __pre_close(self):
         if self.__camera_remote_api is not None:
             stop_future = asyncio.ensure_future(self.__camera_remote_api.stopRecMode())
-            stop_future.add_done_callback(self.pre_close_callback)
+            stop_future.add_done_callback(self.__pre_close_callback)
 
-    def pre_close_callback(self, f):
+    def __pre_close_callback(self, f):
         self.close()
 
     def closeEvent(self, event):

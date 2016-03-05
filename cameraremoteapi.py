@@ -8,7 +8,7 @@ import json
 import logging
 from utils import upper_first_letter
 
-from utils import debug_trace
+# from utils import debug_trace
 
 MINIMUM_API_VERSION = "2.0.0"
 
@@ -46,6 +46,7 @@ class CameraRemoteEventWatcher(object):
             "exposureCompensation": None,
             "flashMode": None,
             "fNumber": None,
+            "focusMode": None,
             "isoSpeedRate": None,
             "programShift": None,
             "shutterSpeed": None,
@@ -85,10 +86,7 @@ class CameraRemoteEventWatcher(object):
     async def __watcher(self):
         long_polling_flag = False
         while True:
-            try:
-                result = await self.__camera_remote_api.getEvent(None, longPollingFlag=long_polling_flag)
-            except:
-                continue
+            result = await self.__camera_remote_api.getEvent(None, longPollingFlag=long_polling_flag)
             if result[0] is not None:
                 available_api_list = result[0]["names"]
                 self.__camera_remote_api.set_available_api_list(available_api_list)
@@ -97,12 +95,10 @@ class CameraRemoteEventWatcher(object):
                 if type(item) != dict:
                     continue
                 event_name = item["type"]
-                # if event_name == "fNumber":
-                #     debug_trace()
                 try:
                     event_callback = self.__registered_events[event_name]
-                except KeyError:
-                    raise CameraRemoteException("unknown event name %s" % (event_name,))
+                except KeyError as e:
+                    raise CameraRemoteException("unknown event name %s" % (event_name,)) from e
                 if event_callback is None:
                     # the event is not watched
                     continue
@@ -128,8 +124,14 @@ class CameraRemoteEventWatcher(object):
                 event_callback(event_name, values)
             long_polling_flag = True
 
+    def __end_watcher(self, f):
+        exception = f.exception()
+        if exception is not None:
+            logger.error("watcher event loop stopped unexpectedly, reason: %s" % (str(exception),))
+
     def start_event_watcher(self):
         self.__event_watcher_future = asyncio.ensure_future(self.__watcher())
+        self.__event_watcher_future.add_done_callback(self.__end_watcher)
 
     def stop_event_watcher(self):
         if self.__event_watcher_future is not None:
@@ -626,6 +628,7 @@ class CameraRemoteApi(object):
         return partial(self.__trunk, name)
 
     async def __get_response(self, data, headers):
+        logger.debug("called > %s" % (data,))
         try:
             response = await self.__session.post(self.__endpoint_url,
                                                  data=data.encode("ascii"),
@@ -692,7 +695,6 @@ class CameraRemoteApi(object):
         self.__request_id += 1
 
         data_json = json.dumps(data)
-        logger.debug("called > %s" % (data_json,))
         headers = {'content-type': 'application/json'}
         if timeout is None:
             resp = await self.__get_response(data_json, headers)
