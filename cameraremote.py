@@ -51,14 +51,8 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         self.__closing_actions = False
 
-    def __init_menu_bar(self):
-        menubar = self.menuBar()
-
-        quit_action = QtWidgets.QAction("Quit", self)
-        quit_action.triggered.connect(self.close)
-
-        file_ = menubar.addMenu("File")
-        file_.addAction(quit_action)
+    def __update_status(self, event, data):
+        self.statusBar().showMessage(data)
 
     def __current_candidates_callback(self, event, data):
         label = self.__EXPOSURE[event]["Label"]
@@ -77,6 +71,9 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         events_watcher = await camera_remote_api.initial_checks()
         callbacks = {key: value["callback"] for key, value in self.__EXPOSURE.items()}
+        callbacks.update(
+            {"cameraStatus": self.__update_status}
+        )
         events_watcher.register_events(callbacks)
         self.__camera_remote_api.start_event_watcher()
 
@@ -98,6 +95,15 @@ class CameraRemote(QtWidgets.QMainWindow):
         set_function = getattr(self.__camera_remote_api, function_name)
         kwargs = {object_name: value}
         asyncio.ensure_future(set_function(**kwargs))
+
+    def __init_menu_bar(self):
+        menubar = self.menuBar()
+
+        quit_action = QtWidgets.QAction("Quit", self)
+        quit_action.triggered.connect(self.close)
+
+        file_ = menubar.addMenu("File")
+        file_.addAction(quit_action)
 
     def __init_ui(self):
         layout_exposure = QtWidgets.QGridLayout()
@@ -174,8 +180,6 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         self.setCentralWidget(window)
         self.setWindowTitle("Camera Remote")
-
-        self.statusBar().showMessage("Ready")
 
         # x and y coordinates on the screen, width, height
         self.setGeometry(100, 100, 1030, 800)

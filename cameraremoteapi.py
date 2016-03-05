@@ -104,24 +104,29 @@ class CameraRemoteEventWatcher(object):
                     continue
 
                 capitalized_event_name = upper_first_letter(event_name)
-                values = {}
-                values["Current"] = item["current" + capitalized_event_name]
-                try:
-                    values["Candidates"] = item[event_name + "Candidates"]
-                except KeyError:
+                current_item_key = "current" + capitalized_event_name
+                if event_name in item:
+                    # for cameraStatus, liveviewStatus, ...
+                    data = item[event_name]
+                elif current_item_key in item:
+                    data = {}
+                    data["Current"] = item[current_item_key]
                     try:
-                        min_ = item["min" + capitalized_event_name]
-                        max_ = item["max" + capitalized_event_name]
-                        step = item["stepIndexOf" + capitalized_event_name]
-                        value = min_
-                        candidates = []
-                        while value <= max_:
-                            candidates.append(str(value))
-                            value += step
-                        values["Candidates"] = candidates
+                        data["Candidates"] = item[event_name + "Candidates"]
                     except KeyError:
-                        continue
-                event_callback(event_name, values)
+                        try:
+                            min_ = item["min" + capitalized_event_name]
+                            max_ = item["max" + capitalized_event_name]
+                            step = item["stepIndexOf" + capitalized_event_name]
+                            value = min_
+                            candidates = []
+                            while value <= max_:
+                                candidates.append(str(value))
+                                value += step
+                            data["Candidates"] = candidates
+                        except KeyError:
+                            continue
+                event_callback(event_name, data)
             long_polling_flag = True
 
     def __end_watcher(self, f):
