@@ -49,11 +49,13 @@ class CameraRemote(QtWidgets.QMainWindow):
             self.__device_available_callback
         )
 
+        self.__closing_actions = False
+
     def __init_menu_bar(self):
         menubar = self.menuBar()
 
         quit_action = QtWidgets.QAction("Quit", self)
-        quit_action.triggered.connect(self.__pre_close)
+        quit_action.triggered.connect(self.close)
 
         file_ = menubar.addMenu("File")
         file_.addAction(quit_action)
@@ -178,19 +180,21 @@ class CameraRemote(QtWidgets.QMainWindow):
         # x and y coordinates on the screen, width, height
         self.setGeometry(100, 100, 1030, 800)
 
-    def __pre_close(self):
-        if self.__camera_remote_api is not None:
-            stop_future = asyncio.ensure_future(self.__camera_remote_api.stopRecMode())
-            stop_future.add_done_callback(self.__pre_close_callback)
-
     def __pre_close_callback(self, f):
+        self.__closing_actions = True
         self.close()
 
     def closeEvent(self, event):
-        if self.__camera_remote_api is not None:
+        if self.__closing_actions:
             self.__camera_remote_api.close()
-        logger.info("finished")
-        event.accept()
+            logger.info("finished")
+        else:
+            if self.__camera_remote_api is not None:
+                stop_future = asyncio.ensure_future(self.__camera_remote_api.stopRecMode())
+                stop_future.add_done_callback(self.__pre_close_callback)
+                event.ignore()
+            else:
+                logger.info("finished")
 
 
 app = QtWidgets.QApplication(sys.argv)
