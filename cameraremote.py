@@ -11,33 +11,36 @@ import sys
 
 from cameraremoteapi import CameraRemoteApi  # , CameraRemoteApiException
 from cameraremotecontrol import CameraRemoteControl
-from utils import lower_first_letter
-from utils import upper_first_letter
+# from utils import lower_first_letter
 
-# from utils import debug_trace
+from utils import debug_trace
 
 
 class CameraRemote(QtWidgets.QMainWindow):
 
-    # --- Exposure tab
-    __EXPOSURE = {
-        "ExposureCompensation": {
-            "position": (0, 0),
-            "type": int,
-        },
-        "FNumber": {
-            "position": (0, 1),
-        },
-        "ShutterSpeed": {
-            "position": (1, 0),
-        },
-        "IsoSpeedRate": {
-            "position": (1, 1),
-        },
-    }
-
     def __init__(self, parent=None):
         QtWidgets.QMainWindow.__init__(self, parent)
+
+        # --- Exposure tab
+        self.__EXPOSURE = {
+            "exposureCompensation": {
+                "position": (0, 0),
+                "type": int,
+                "callback": self.__current_candidates_callback
+            },
+            "fNumber": {
+                "position": (0, 1),
+                "callback": self.__current_candidates_callback
+            },
+            "shutterSpeed": {
+                "position": (1, 0),
+                "callback": self.__current_candidates_callback
+            },
+            "isoSpeedRate": {
+                "position": (1, 1),
+                "callback": self.__current_candidates_callback
+            },
+        }
 
         self.__init_ui()
         self.__camera_remote_api = None
@@ -45,8 +48,6 @@ class CameraRemote(QtWidgets.QMainWindow):
             "ILCE",
             self.__device_available_callback
         )
-
-        self.event_future = None
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
@@ -57,82 +58,46 @@ class CameraRemote(QtWidgets.QMainWindow):
         file_ = menubar.addMenu("File")
         file_.addAction(quit_action)
 
-    async def worker(self):
-        long_polling_flag = False
-        while True:
-            result = await self.__camera_remote_api.getEvent(None, longPollingFlag=long_polling_flag)
-            if result[0] is not None:
-                available_api_list = result[0]["names"]
-                self.__camera_remote_api.set_available_api_list(available_api_list)
-
-            data = {}
-            for index in [25, 27, 29, 32]:
-                item = result[index]
-                if type(item) != dict:
-                    continue
-                key = item["type"]
-                ckey = upper_first_letter(key)
-                values = {}
-                values["Current"] = item["current" + ckey]
-                try:
-                    values["Candidates"] = item[key + "Candidates"]
-                except KeyError:
-                    try:
-                        min_ = item["min" + ckey]
-                        max_ = item["max" + ckey]
-                        step = item["stepIndexOf" + ckey]
-                        value = min_
-                        candidates = []
-                        while value <= max_:
-                            candidates.append(str(value))
-                            value += step
-                        values["Candidates"] = candidates
-                    except KeyError:
-                        continue
-                data[ckey] = values
-            # TODO : put that elsewhere !
-            if len(data) != 0:
-                for event_key, event_value in data.items():
-                    for exp in CameraRemote.__EXPOSURE:
-                        if event_key == exp:
-                            label = CameraRemote.__EXPOSURE[event_key]["Label"]
-                            combo_box = CameraRemote.__EXPOSURE[event_key]["ComboBox"]
-                            current_value = event_value["Current"]
-                            label.setText(str(current_value))
-                            combo_box.clear()
-                            for choice in event_value["Candidates"]:
-                                combo_box.addItem(choice)
-            long_polling_flag = True
+    def __current_candidates_callback(self, event, data):
+        label = self.__EXPOSURE[event]["Label"]
+        combo_box = self.__EXPOSURE[event]["ComboBox"]
+        current_value = data["Current"]
+        label.setText(str(current_value))
+        combo_box.clear()
+        for choice in data["Candidates"]:
+            combo_box.addItem(choice)
 
     async def __device_available_callback(self, device_name, endpoint_url):
         logger.debug("device %s is connected" % (device_name,))
 
         camera_remote_api = CameraRemoteApi(endpoint_url, loop)
         self.__camera_remote_api = camera_remote_api
-        await camera_remote_api.initial_checks()
+
+        events_watcher = await camera_remote_api.initial_checks()
+        callbacks = {key: value["callback"] for key, value in self.__EXPOSURE.items()}
+        events_watcher.register_events(callbacks)
+        self.__camera_remote_api.start_event_watcher()
+
         await camera_remote_api.startRecMode()
-        self.event_future = asyncio.ensure_future(self.worker())
 
     def __submit(self):
         if self.__camera_remote_api is None:
             return
 
         sender = self.sender()
-
         function_name = str(sender.objectName())
-        param_name = lower_first_letter(function_name)
+        param_name = function_name
         value = sender.currentText()
-        type_ = CameraRemote.__EXPOSURE[function_name].get("type", str)
+        type_ = self.__EXPOSURE[function_name].get("type", str)
         value = type_(value)
 
-        function_name = "set" + function_name
-        set_function = getattr(self.__camera_remote_api, function_name)
+        set_function = getattr(self.__camera_remote_api, "set" + function_name)
         kwargs = {param_name: value}
         asyncio.ensure_future(set_function(**kwargs))
 
     def __init_ui(self):
         layout_exposure = QtWidgets.QGridLayout()
-        for exp in CameraRemote.__EXPOSURE:
+        for exp in self.__EXPOSURE:
             label = QtWidgets.QLabel("")
 
             combo_box = QtWidgets.QComboBox()
@@ -146,9 +111,9 @@ class CameraRemote(QtWidgets.QMainWindow):
             gb = QtWidgets.QGroupBox(exp)
             gb.setLayout(hbox_layout)
 
-            layout_exposure.addWidget(gb, *CameraRemote.__EXPOSURE[exp]["position"])
-            CameraRemote.__EXPOSURE[exp]["Label"] = label
-            CameraRemote.__EXPOSURE[exp]["ComboBox"] = combo_box
+            layout_exposure.addWidget(gb, *self.__EXPOSURE[exp]["position"])
+            self.__EXPOSURE[exp]["Label"] = label
+            self.__EXPOSURE[exp]["ComboBox"] = combo_box
 
         widget_exposure = QtWidgets.QWidget()
         widget_exposure.setLayout(layout_exposure)
@@ -220,8 +185,6 @@ class CameraRemote(QtWidgets.QMainWindow):
         self.close()
 
     def closeEvent(self, event):
-        if self.event_future is not None:
-            self.event_future.cancel()
         if self.__camera_remote_api is not None:
             self.__camera_remote_api.close()
         logger.info("finished")
@@ -242,7 +205,7 @@ formatter = logging.Formatter("%(levelname)-8s %(message)s")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
-logger.info("startted")
+logger.info("started")
 
 try:
     sys.exit(app.exec_())

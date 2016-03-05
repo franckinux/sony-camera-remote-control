@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 
 import aiohttp
+import asyncio
 from distutils.version import StrictVersion
 from functools import partial
 import json
 import logging
-# import socket
-# import urllib
+from utils import upper_first_letter
 
 from utils import debug_trace
 
@@ -15,425 +15,130 @@ MINIMUM_API_VERSION = "2.0.0"
 logger = logging.getLogger("cameraremote")
 
 
-class CameraRemoteApiException(Exception):
+class CameraRemoteException(Exception):
     pass
+
+
+class CameraRemoteEventWatcher(object):
+
+    def __init__(self, camera_remote_api):
+        self.__camera_remote_api = camera_remote_api
+        self.__event_watcher_future = None
+
+        self.__registered_events = {
+            "cameraStatus": None,
+            "zoomInformation": None,
+            "liveviewStatus": None,
+            "liveviewOrientation": None,
+            "takePicture": None,
+            "storageInformation": None,
+            "beepMode": None,
+            "cameraFunction": None,
+            "movieQuality": None,
+            "stillSize": None,
+            "cameraFunctionResult": None,
+            "steadyMode": None,
+            "viewAngle": None,
+            "exposureMode": None,
+            "postviewImageSize": None,
+            "selfTimer": None,
+            "shootMode": None,
+            "exposureCompensation": None,
+            "flashMode": None,
+            "fNumber": None,
+            "isoSpeedRate": None,
+            "programShift": None,
+            "shutterSpeed": None,
+            "whiteBalance": None,
+            "touchAFPosition": None,
+            "focusStatus": None,
+            "zoomSetting": None,
+            "stillQuality": None,
+            "contShootingMode": None,
+            "contShootingSpeed": None,
+            "contShooting": None,
+            "flipSetting": None,
+            "sceneSelection": None,
+            "intervalTime": None,
+            "colorSetting": None,
+            "movieFileFormat": None,
+            "infraredRemoteControl": None,
+            "tvColorSystem": None,
+            "trackingFocusStatus": None,
+            "trackingFocus": None,
+            "batteryInfo": None,
+            "recordingTime": None,
+            "numberOfShots": None,
+            "autoPowerOff": None,
+            "loopRecTime": None,
+            "audioRecording": None,
+            "windNoiseReduction": None,
+        }
+
+    def register_events(self, watched_events):
+        for event_name, event_callback in watched_events.items():
+            if event_name in self.__registered_events:
+                self.__registered_events[event_name] = event_callback
+            else:
+                raise CameraRemoteException("unknwon event name %s" % (event_name))
+
+    async def __watcher(self):
+        long_polling_flag = False
+        while True:
+            try:
+                result = await self.__camera_remote_api.getEvent(None, longPollingFlag=long_polling_flag)
+            except:
+                continue
+            if result[0] is not None:
+                available_api_list = result[0]["names"]
+                self.__camera_remote_api.set_available_api_list(available_api_list)
+
+            for item in result[1:]:
+                if type(item) != dict:
+                    continue
+                event_name = item["type"]
+                # if event_name == "fNumber":
+                #     debug_trace()
+                try:
+                    event_callback = self.__registered_events[event_name]
+                except KeyError:
+                    raise CameraRemoteException("unknown event name %s" % (event_name,))
+                if event_callback is None:
+                    # the event is not watched
+                    continue
+
+                capitalized_event_name = upper_first_letter(event_name)
+                values = {}
+                values["Current"] = item["current" + capitalized_event_name]
+                try:
+                    values["Candidates"] = item[event_name + "Candidates"]
+                except KeyError:
+                    try:
+                        min_ = item["min" + capitalized_event_name]
+                        max_ = item["max" + capitalized_event_name]
+                        step = item["stepIndexOf" + capitalized_event_name]
+                        value = min_
+                        candidates = []
+                        while value <= max_:
+                            candidates.append(str(value))
+                            value += step
+                        values["Candidates"] = candidates
+                    except KeyError:
+                        continue
+                event_callback(event_name, values)
+            long_polling_flag = True
+
+    def start_event_watcher(self):
+        self.__event_watcher_future = asyncio.ensure_future(self.__watcher())
+
+    def stop_event_watcher(self):
+        if self.__event_watcher_future is not None:
+            self.__event_watcher_future.cancel()
 
 
 class CameraRemoteApi(object):
 
     SERVICE_NAME = "camera"
-
-    __METHODS = {
-        # Shoot mode
-        "setShootMode": {
-            "params": ["shootMode"],
-            "version": "1.0"
-        },
-        "getShootMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedShootMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableShootMode": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Still capture
-        "actTakePicture": {
-            "params": [],
-            "version": "1.0"
-        },
-        "awaitTakePicture": {
-            "params": [],
-            "version": "1.0"
-        },
-        "startContShooting": {
-            "params": [],
-            "version": "1.0"
-        },
-        "stoptContShooting": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Movie recording
-        "startMovieRec": {
-            "params": [],
-            "version": "1.0"
-        },
-        "stopMovieRec": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Audio recording (N/A)
-        # Intervall still recording (N/A)
-
-        # Liveview
-        "startLiveview": {
-            "params": [],
-            "version": "1.0"
-        },
-        "stopLiveview": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Liveview size
-        "startLiveviewWithSize": {
-            "params": ["liveviewSize"],
-            "version": "1.0"
-        },
-        "getLiveviewSize": {
-            "params": ["liveviewSize"],
-            "version": "1.0"
-        },
-        "getSupportedLiveviewSize": {
-            "params": ["liveviewSize"],
-            "version": "1.0"
-        },
-        "getAvailableLiveviewSize": {
-            "params": ["liveviewSize"],
-            "version": "1.0"
-        },
-
-        # Liveview frame (N/A)
-
-        # Zoom
-        "actZoom": {
-            "params": ["zoomDirection", "zoomMovement"],
-            "version": "1.0"
-        },
-
-        # Zoom setting (N/A)
-        # Half-press shutter (N/A)
-
-        # Touch AF position
-        "setTouchAFPosition": {
-            "params": ["xAxisPosition", "yAxisPosition"],
-            "version": "1.0"
-        },
-        "getTouchAFPosition": {
-            "params": [],
-            "version": "1.0"
-        },
-        "cancelTouchAFPosition": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Tracking focus (N/A)
-        # Continuous shooting mode (N/A)
-        # Continuous shooting speed (N/A)
-
-        # Self-timer
-        "setSelfTimer": {
-            "params": ["selfTimer"],
-            "version": "1.0"
-        },
-        "getSelfTimer": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedSelfTimer": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableSelfTimer": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Exposure mode
-        "setExposureMode": {
-            "params": ["exposureMode"],
-            "version": "1.0"
-        },
-        "getExposureMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedExposureMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableExposureMode": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Focus mode
-        "setFocusMode": {
-            "params": ["focusMode"],
-            "version": "1.0"
-        },
-        "getFocusMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedFocusMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableFocusMode": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Exposure compensation
-        "setExposureCompensation": {
-            "params": ["exposureCompensation"],
-            "version": "1.0"
-        },
-        "getExposureCompensation": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedExposureCompensation": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableExposureCompensation": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # F number
-        "setFNumber": {
-            "params": ["fNumber"],
-            "version": "1.0"
-        },
-        "getFNumber": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedFNumber": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableFNumber": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Shutter speed
-        "setShutterSpeed": {
-            "params": ["shutterSpeed"],
-            "version": "1.0"
-        },
-        "getShutterSpeed": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableShutterSpeed": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedShutterSpeed": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # ISO speed rate
-        "setIsoSpeedRate": {
-            "params": ["isoSpeedRate"],
-            "version": "1.0"
-        },
-        "getIsoSpeedRate": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedIsoSpeedRate": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableIsoSpeedRate": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # White balance
-        "setWhiteBalance": {
-            "params": [
-                "whiteBalanceMode", "colorTemperatureEnabled",
-                "colorTemperature"
-            ],
-            "version": "1.0"
-        },
-        "getWhiteBalance": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedWhiteBalance": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableWhiteBalance": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Program shift
-        "setProgramShift": {
-            "params": ["programShift"],
-            "version": "1.0"
-        },
-        "getSupportedProgramShift": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Flash mode
-        "setFlashMode": {
-            "params": ["flashMode"],
-            "version": "1.0"
-        },
-        "getFlashMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getSupportedFlashMode": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getAvailableFlashMode": {
-            "params": [],
-            "version": "1.0"
-        },
-
-        # Still size (N/A)
-        # Still quality (N/A)
-
-        # Postview image size
-        "setPostviewImageSize": {
-            "params": ["postviewImageSize"],
-            "version": "1.0"
-        },
-        "getPostviewImageSize": {
-            "params": ["postviewImageSize"],
-            "version": "1.0"
-        },
-        "getSupportedPostviewImageSize": {
-            "params": ["postviewImageSize"],
-            "version": "1.0"
-        },
-        "getAvailablePostviewImageSize": {
-            "params": ["postviewImageSize"],
-            "version": "1.0"
-        },
-
-        # Movie file format (N/A)
-        # Movie quality (N/A)
-        # Steady mode (N/A)
-        # View angle (N/A)
-        # Scene selection (N/A)
-        # Color setting (N/A)
-        # Interval time (N/A)
-        # Flip setting (N/A)
-        # TV color system (N/A)
-
-        # Camera setup
-        "startRecMode": {
-            "params": [],
-            "version": "1.0",
-            "available_api_list_changed": True,
-        },
-        "stopRecMode": {
-            "service": ["camera"],
-            "params": [],
-            "version": "1.0",
-            "available_api_list_changed": True,
-        },
-
-        # Camera function (N/A)
-        # Transfering images (N/A)
-        # Remode playback (N/A)
-        # Delete contents (N/A)
-        # IR remote control (N/A)
-        # Auto power off (N/A)
-        # Beep mode (N/A)
-        # Date/time setting (N/A)
-        # Storage information (N/A)
-
-        # Event notification
-        "getEvent": {
-            "params": ["longPollingFlag"],
-            "version": "1.0"
-        },
-
-        # Server information
-        "getAvailableApiList": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getApplicationInfo": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getVersions": {
-            "params": [],
-            "version": "1.0"
-        },
-        "getMethodTypes": {
-            "params": ["apiVersion"],
-            "version": "1.0"
-        },
-    }
-
-    __PARAMS = {
-        # startLiveViewWithSize
-        "liveviewSize": ["L", "M"],
-        # actZoom
-        "zoomDirection": ["in", "out"],
-        "zoomMovement": ["start", "stop", "1shot"],
-        # setZoomSetting
-        "zoom": ["Optical Zoom Only", "On:Clear Image Zoom"],
-        # setExposureMode
-        "exposureMode": [
-            "Program Auto", "Aperture", "Shutter", "Manual",
-            "Intelligent Auto", "Superior Auto"
-        ],
-        # setFocusMode
-        "focusMode": ["AF-S", "AF-C", "DMF", "MF"],
-        # setWhiteBalance
-        "whiteBalanceMode": [
-            "Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent"
-            "Fluorescent: Warm White (-1)", "Fluorescent: Cool White (0)",
-            "Fluorescent: Day White (+1)", "Fluorescent: Daylight (+2)",
-            "Flash", "Color Temperature", "Custom 1", "Custom 2", "Custom 3"
-        ],
-        # setFlasmode
-        "flashMode": ["off", "auto", "on", "slowSync", "rearSync", "wireless"],
-        # setPostviewImageSize
-        "postviewImageSize": ["Original", "2M"],
-
-        # setShootMode
-        "shootMode": ["still", "movie", "audio", "intervalstill"],
-    }
-
-    __TYPES = {
-        # setTouchAFPosition
-        "xAxisPosition": float,
-        "yAxisPosition": float,
-        # setSelfTimer
-        "selfTimer": int,
-        # setExposureCompensation
-        "exposureCompensation": int,
-        # setWhiteBalance
-        "colorTemperatureEnabled": bool,
-        "colorTemperature": int,
-        # setProgramShift
-        "programShift": int,
-
-        # getEvent
-        "longPollingFlag": bool,
-        # getMethodTypes
-        "apiVersion": str,
-    }
 
     def __init__(self, endpoint_url, loop):
         self.__endpoint_url = endpoint_url
@@ -444,6 +149,419 @@ class CameraRemoteApi(object):
         self.__global_api_version_ok = False
         # solve the chicken and egg problem
         self.__available_api_list = ["getAvailableApiList"]
+        self.__events_watcher = CameraRemoteEventWatcher(self)
+
+        self.__METHODS = {
+            # Shoot mode
+            "setShootMode": {
+                "params": ["shootMode"],
+                "version": "1.0"
+            },
+            "getShootMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedShootMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableShootMode": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Still capture
+            "actTakePicture": {
+                "params": [],
+                "version": "1.0"
+            },
+            "awaitTakePicture": {
+                "params": [],
+                "version": "1.0"
+            },
+            "startContShooting": {
+                "params": [],
+                "version": "1.0"
+            },
+            "stoptContShooting": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Movie recording
+            "startMovieRec": {
+                "params": [],
+                "version": "1.0"
+            },
+            "stopMovieRec": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Audio recording (N/A)
+            # Intervall still recording (N/A)
+
+            # Liveview
+            "startLiveview": {
+                "params": [],
+                "version": "1.0"
+            },
+            "stopLiveview": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Liveview size
+            "startLiveviewWithSize": {
+                "params": ["liveviewSize"],
+                "version": "1.0"
+            },
+            "getLiveviewSize": {
+                "params": ["liveviewSize"],
+                "version": "1.0"
+            },
+            "getSupportedLiveviewSize": {
+                "params": ["liveviewSize"],
+                "version": "1.0"
+            },
+            "getAvailableLiveviewSize": {
+                "params": ["liveviewSize"],
+                "version": "1.0"
+            },
+
+            # Liveview frame (N/A)
+
+            # Zoom
+            "actZoom": {
+                "params": ["zoomDirection", "zoomMovement"],
+                "version": "1.0"
+            },
+
+            # Zoom setting (N/A)
+            # Half-press shutter (N/A)
+
+            # Touch AF position
+            "setTouchAFPosition": {
+                "params": ["xAxisPosition", "yAxisPosition"],
+                "version": "1.0"
+            },
+            "getTouchAFPosition": {
+                "params": [],
+                "version": "1.0"
+            },
+            "cancelTouchAFPosition": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Tracking focus (N/A)
+            # Continuous shooting mode (N/A)
+            # Continuous shooting speed (N/A)
+
+            # Self-timer
+            "setSelfTimer": {
+                "params": ["selfTimer"],
+                "version": "1.0"
+            },
+            "getSelfTimer": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedSelfTimer": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableSelfTimer": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Exposure mode
+            "setExposureMode": {
+                "params": ["exposureMode"],
+                "version": "1.0"
+            },
+            "getExposureMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedExposureMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableExposureMode": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Focus mode
+            "setFocusMode": {
+                "params": ["focusMode"],
+                "version": "1.0"
+            },
+            "getFocusMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedFocusMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableFocusMode": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Exposure compensation
+            "setExposureCompensation": {
+                "params": ["exposureCompensation"],
+                "version": "1.0"
+            },
+            "getExposureCompensation": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedExposureCompensation": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableExposureCompensation": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # F number
+            "setFNumber": {
+                "params": ["fNumber"],
+                "version": "1.0"
+            },
+            "getFNumber": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedFNumber": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableFNumber": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Shutter speed
+            "setShutterSpeed": {
+                "params": ["shutterSpeed"],
+                "version": "1.0"
+            },
+            "getShutterSpeed": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableShutterSpeed": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedShutterSpeed": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # ISO speed rate
+            "setIsoSpeedRate": {
+                "params": ["isoSpeedRate"],
+                "version": "1.0"
+            },
+            "getIsoSpeedRate": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedIsoSpeedRate": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableIsoSpeedRate": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # White balance
+            "setWhiteBalance": {
+                "params": [
+                    "whiteBalanceMode", "colorTemperatureEnabled",
+                    "colorTemperature"
+                ],
+                "version": "1.0"
+            },
+            "getWhiteBalance": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedWhiteBalance": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableWhiteBalance": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Program shift
+            "setProgramShift": {
+                "params": ["programShift"],
+                "version": "1.0"
+            },
+            "getSupportedProgramShift": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Flash mode
+            "setFlashMode": {
+                "params": ["flashMode"],
+                "version": "1.0"
+            },
+            "getFlashMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getSupportedFlashMode": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getAvailableFlashMode": {
+                "params": [],
+                "version": "1.0"
+            },
+
+            # Still size (N/A)
+            # Still quality (N/A)
+
+            # Postview image size
+            "setPostviewImageSize": {
+                "params": ["postviewImageSize"],
+                "version": "1.0"
+            },
+            "getPostviewImageSize": {
+                "params": ["postviewImageSize"],
+                "version": "1.0"
+            },
+            "getSupportedPostviewImageSize": {
+                "params": ["postviewImageSize"],
+                "version": "1.0"
+            },
+            "getAvailablePostviewImageSize": {
+                "params": ["postviewImageSize"],
+                "version": "1.0"
+            },
+
+            # Movie file format (N/A)
+            # Movie quality (N/A)
+            # Steady mode (N/A)
+            # View angle (N/A)
+            # Scene selection (N/A)
+            # Color setting (N/A)
+            # Interval time (N/A)
+            # Flip setting (N/A)
+            # TV color system (N/A)
+
+            # Camera setup
+            "startRecMode": {
+                "params": [],
+                "version": "1.0",
+                "available_api_list_changed": True,
+            },
+            "stopRecMode": {
+                "service": ["camera"],
+                "params": [],
+                "version": "1.0",
+                "available_api_list_changed": True,
+            },
+
+            # Camera function (N/A)
+            # Transfering images (N/A)
+            # Remode playback (N/A)
+            # Delete contents (N/A)
+            # IR remote control (N/A)
+            # Auto power off (N/A)
+            # Beep mode (N/A)
+            # Date/time setting (N/A)
+            # Storage information (N/A)
+
+            # Event notification
+            "getEvent": {
+                "params": ["longPollingFlag"],
+                "version": "1.0"
+            },
+
+            # Server information
+            "getAvailableApiList": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getApplicationInfo": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getVersions": {
+                "params": [],
+                "version": "1.0"
+            },
+            "getMethodTypes": {
+                "params": ["apiVersion"],
+                "version": "1.0"
+            },
+        }
+
+        self.__PARAMS = {
+            # startLiveViewWithSize
+            "liveviewSize": ["L", "M"],
+            # actZoom
+            "zoomDirection": ["in", "out"],
+            "zoomMovement": ["start", "stop", "1shot"],
+            # setZoomSetting
+            "zoom": ["Optical Zoom Only", "On:Clear Image Zoom"],
+            # setExposureMode
+            "exposureMode": [
+                "Program Auto", "Aperture", "Shutter", "Manual",
+                "Intelligent Auto", "Superior Auto"
+            ],
+            # setFocusMode
+            "focusMode": ["AF-S", "AF-C", "DMF", "MF"],
+            # setWhiteBalance
+            "whiteBalanceMode": [
+                "Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent"
+                "Fluorescent: Warm White (-1)", "Fluorescent: Cool White (0)",
+                "Fluorescent: Day White (+1)", "Fluorescent: Daylight (+2)",
+                "Flash", "Color Temperature", "Custom 1", "Custom 2", "Custom 3"
+            ],
+            # setFlasmode
+            "flashMode": ["off", "auto", "on", "slowSync", "rearSync", "wireless"],
+            # setPostviewImageSize
+            "postviewImageSize": ["Original", "2M"],
+
+            # setShootMode
+            "shootMode": ["still", "movie", "audio", "intervalstill"],
+        }
+
+        self.__TYPES = {
+            # setTouchAFPosition
+            "xAxisPosition": float,
+            "yAxisPosition": float,
+            # setSelfTimer
+            "selfTimer": int,
+            # setExposureCompensation
+            "exposureCompensation": int,
+            # setWhiteBalance
+            "colorTemperatureEnabled": bool,
+            "colorTemperature": int,
+            # setProgramShift
+            "programShift": int,
+
+            # getEvent
+            "longPollingFlag": bool,
+            # getMethodTypes
+            "apiVersion": str,
+        }
 
     async def __get_available_api_list(self):
         result = await self.getAvailableApiList()
@@ -457,7 +575,7 @@ class CameraRemoteApi(object):
         return method in self.__available_api_list
 
     async def initial_checks(self):
-        """Perform initial ckecks just after remote api creation"""
+        """Perform initial ckecks"""
         # get initial available api list
         await self.__get_available_api_list()
 
@@ -479,14 +597,18 @@ class CameraRemoteApi(object):
             method_name = method_list[0]
             new_version = method_list[-1]
             try:
-                current_version = CameraRemoteApi.__METHODS[method_name]["version"]
+                current_version = self.__METHODS[method_name]["version"]
             except KeyError:
                 logger.error("unknown %s method" % (method_name,))
                 continue
             if StrictVersion(new_version) > StrictVersion(current_version):
-                CameraRemoteApi.__METHODS[method_name]["version"] = new_version
+                self.__METHODS[method_name]["version"] = new_version
                 logger.debug("updating %s method version : %s -> %s" %
                           (method_name, current_version, new_version))
+        return self.__events_watcher
+
+    def start_event_watcher(self):
+        self.__events_watcher.start_event_watcher()
 
     def set_default_timeout(self, timeout):
         self.__timeout = timeout
@@ -496,7 +618,7 @@ class CameraRemoteApi(object):
         error_msg = ""
         if name not in self.__available_api_list:
             error_msg = "method %s not in available api list" % (name,)
-        elif name not in CameraRemoteApi.__METHODS:
+        elif name not in self.__METHODS:
             error_msg = "unknown %s method" % (name,)
         if error_msg != "":
             logger.error(error_msg)
@@ -512,7 +634,7 @@ class CameraRemoteApi(object):
                 resp = await response.json()
                 logger.debug("received < %s" % (resp,))
             else:
-                raise CameraRemoteApiException("http error %d" % (response.status,))
+                raise CameraRemoteException("http error %d" % (response.status,))
         finally:
             response.release()
         return resp
@@ -521,7 +643,7 @@ class CameraRemoteApi(object):
         if name is None:
             # the method is not available : fail silently
             return None
-        method = CameraRemoteApi.__METHODS[name]
+        method = self.__METHODS[name]
         params = method["params"]
 
         # checks param numbers
@@ -532,11 +654,11 @@ class CameraRemoteApi(object):
                 timeout = args[0]
         else:
             logger.error("%d parameters for %s method" % (args_len, name))
-            raise CameraRemoteApiException("wrong number of parameters")
+            raise CameraRemoteException("wrong number of parameters")
         kwargs_len = len(kwargs)
         if kwargs_len > len(params):
             logger.error("%d keyword parameters for %s method" % (kwargs_len, name))
-            raise CameraRemoteApiException("wrong number of keyword parameters")
+            raise CameraRemoteException("wrong number of keyword parameters")
 
         # param checks
         for param_name, param_value in kwargs.items():
@@ -579,7 +701,7 @@ class CameraRemoteApi(object):
                 resp = await self.__get_response(data_json, headers)
 
         if resp["id"] != req_id:
-            raise CameraRemoteApiException("bad id")
+            raise CameraRemoteException("bad id")
 
         if "result" in resp or "results" in resp:
             if method.get("available_api_list_changed", False):
@@ -590,7 +712,9 @@ class CameraRemoteApi(object):
                 return resp["results"]
 
         if "error" in resp:
-            raise CameraRemoteApiException(resp["error"][1])
+            raise CameraRemoteException(resp["error"][1])
 
     def close(self):
+        if self.__events_watcher is not None:
+            self.__events_watcher.stop_event_watcher()
         self.__session.close()
