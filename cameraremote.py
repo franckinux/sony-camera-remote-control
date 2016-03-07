@@ -144,7 +144,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         self.__closing_actions = False
 
         # lock for downloading only one picture at a time. this prevents from
-        # sharing the progress bar and the pixmap which are uniques. this way a
+        # sharing the progress bar and the pixmap which are unique. this way a
         # picture will be shown while the next is beeing downloded...
         self.__download_lock = asyncio.Lock()
 
@@ -332,18 +332,25 @@ class CameraRemote(QtWidgets.QMainWindow):
         picture_view_widget.setLayout(picture_view_layout)
         tabs.addTab(picture_view_widget, "picture view")
 
-        # # ---Test tab
-        # button_start = QtWidgets.QPushButton("start")
-        # button_stop = QtWidgets.QPushButton("stop")
-        # layout_test = QtWidgets.QHBoxLayout()
-        # layout_test.addWidget(button_start)
-        # layout_test.addWidget(button_stop)
-        #
-        # widget_test = QtWidgets.QWidget()
-        # widget_test.setLayout(layout_test)
+        # ---Test tab
+        button1 = QtWidgets.QPushButton("button1")
+        button2 = QtWidgets.QPushButton("button2")
+        test_layout = QtWidgets.QHBoxLayout()
+        test_layout.addWidget(button1)
+        test_layout.addWidget(button2)
 
-        # button_start.clicked.connect(self.__start_action)
-        # button_stop.clicked.connect(self.__stop_action)
+        test_widget = QtWidgets.QWidget()
+        test_widget.setLayout(test_layout)
+
+        button1.clicked.connect(self.__button1_callback)
+        button2.clicked.connect(self.__button2_callback)
+        tabs.addTab(test_widget, "test")
+
+    def __button1_callback(self):
+        asyncio.ensure_future(self.__camera_remote_api.getAvailableApiList())
+
+    def __button2_callback(self):
+        asyncio.ensure_future(self.__camera_remote_api.getVersions())
 
     def __pre_close_callback(self, f):
         self.__closing_actions = True
