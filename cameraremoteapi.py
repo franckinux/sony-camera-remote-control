@@ -83,6 +83,40 @@ class CameraRemoteEventWatcher(object):
             else:
                 raise CameraRemoteException("unknwon event name %s" % (event_name))
 
+    def __process_dict_item(self, item):
+        event_name = item["type"]
+        try:
+            event_callback = self.__registered_events[event_name]
+        except KeyError as e:
+            raise CameraRemoteException("unknown event name %s" % (event_name,)) from e
+        if event_callback is None:
+            # the event is not watched
+            return
+
+        capitalized_event_name = upper_first_letter(event_name)
+        current_item_key = "current" + capitalized_event_name
+        if current_item_key in item:
+            data = {}
+            data["Current"] = item[current_item_key]
+            try:
+                data["Candidates"] = item[event_name + "Candidates"]
+            except KeyError:
+                try:
+                    min_ = item["min" + capitalized_event_name]
+                    max_ = item["max" + capitalized_event_name]
+                    step = item["stepIndexOf" + capitalized_event_name]
+                    value = min_
+                    candidates = []
+                    while value <= max_:
+                        candidates.append(str(value))
+                        value += step
+                    data["Candidates"] = candidates
+                except KeyError:
+                    return
+        else:
+            data = item
+        event_callback(event_name, data)
+
     async def __watcher(self):
         long_polling_flag = False
         while True:
@@ -92,41 +126,11 @@ class CameraRemoteEventWatcher(object):
                 self.__camera_remote_api.set_available_api_list(available_api_list)
 
             for item in result[1:]:
-                if type(item) != dict:
-                    continue
-                event_name = item["type"]
-                try:
-                    event_callback = self.__registered_events[event_name]
-                except KeyError as e:
-                    raise CameraRemoteException("unknown event name %s" % (event_name,)) from e
-                if event_callback is None:
-                    # the event is not watched
-                    continue
-
-                capitalized_event_name = upper_first_letter(event_name)
-                current_item_key = "current" + capitalized_event_name
-                if event_name in item:
-                    # for cameraStatus, liveviewStatus, ...
-                    data = item[event_name]
-                elif current_item_key in item:
-                    data = {}
-                    data["Current"] = item[current_item_key]
-                    try:
-                        data["Candidates"] = item[event_name + "Candidates"]
-                    except KeyError:
-                        try:
-                            min_ = item["min" + capitalized_event_name]
-                            max_ = item["max" + capitalized_event_name]
-                            step = item["stepIndexOf" + capitalized_event_name]
-                            value = min_
-                            candidates = []
-                            while value <= max_:
-                                candidates.append(str(value))
-                                value += step
-                            data["Candidates"] = candidates
-                        except KeyError:
-                            continue
-                event_callback(event_name, data)
+                if type(item) == dict:
+                    self.__process_dict_item(item)
+                if type(item) == list:
+                    for litem in item:
+                        self.__process_dict_item(litem)
             long_polling_flag = True
 
     def __end_watcher(self, f):
