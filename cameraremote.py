@@ -18,24 +18,26 @@ from utils import upper_first_letter
 
 
 class CameraRemoteWidget:
-    pass
+
+    def get_event_callback(self):
+        return self.event_callback
+
+    def get_name(self):
+        return self.widget_name
 
 
 class CurrentCandidateWidget(CameraRemoteWidget):
 
     def __init__(self, camera_remote, widget_name, group_caption, type_=str):
         self.camera_remote = camera_remote
-        self.__widget_name = widget_name
+        self.widget_name = widget_name
         self.__group_caption = group_caption
         self.__type = type_
 
         self.__widget_label = None
         self.__widget_combo_box = None
 
-    def get_event_callback(self):
-        return self.__event_callback
-
-    def __event_callback(self, event, data):
+    def event_callback(self, data):
         current_value = data["Current"]
         self.__widget_label.setText(str(current_value))
         self.__widget_combo_box.clear()
@@ -44,8 +46,8 @@ class CurrentCandidateWidget(CameraRemoteWidget):
 
     def __submit(self):
         value = self.__type(self.__widget_combo_box.currentText())
-        kwargs = {self.__widget_name: value}
-        function_name = "set" + upper_first_letter(self.__widget_name)
+        kwargs = {self.widget_name: value}
+        function_name = "set" + upper_first_letter(self.widget_name)
 
         logger.info("set %s parameter to %s" % (function_name, str(kwargs)))
         function = getattr(self.camera_remote.camera_api, function_name)
@@ -56,7 +58,6 @@ class CurrentCandidateWidget(CameraRemoteWidget):
 
         self.__widget_label = QtWidgets.QLabel("")
         self.__widget_combo_box = QtWidgets.QComboBox()
-        self.__widget_combo_box.setObjectName(self.__widget_name)
         self.__widget_combo_box.activated.connect(self.__submit)
 
         hbox_layout.addWidget(self.__widget_label)
@@ -71,7 +72,7 @@ class ActionWidget(CameraRemoteWidget):
 
     def __init__(self, camera_remote, widget_name, button_caption):
         self.camera_remote = camera_remote
-        self.__widget_name = widget_name
+        self.widget_name = widget_name
         self.__button_caption = button_caption
         self.__widget_button = None
 
@@ -79,7 +80,7 @@ class ActionWidget(CameraRemoteWidget):
         return
 
     def __submit(self):
-        function_name = self.__widget_name
+        function_name = self.widget_name
 
         logger.info("action %s" % (function_name,))
         function = getattr(self.camera_remote.camera_api, function_name)
@@ -92,7 +93,6 @@ class ActionWidget(CameraRemoteWidget):
     def make_widget_group_box(self):
         hbox_layout = QtWidgets.QHBoxLayout()
         button = QtWidgets.QPushButton(self.__button_caption)
-        button.setObjectName(self.__widget_name)
         button.clicked.connect(self.__submit)
         hbox_layout.addWidget(button)
         group_box = QtWidgets.QGroupBox()
@@ -109,18 +109,128 @@ class TakePictureWidget(ActionWidget):
         asyncio.ensure_future(self.camera_remote.download_picture(url))
 
 
+class WhiteBalanceWidget(CameraRemoteWidget):
+
+    def __init__(self, camera_remote):
+        self.camera_remote = camera_remote
+        self.widget_name = "whiteBalance"
+        self.__white_balance_mode_label = None
+        self.__white_balance_mode_combo_box = None
+        self.__color_temperature_label = None
+        self.__color_temperature_combo_box = None
+        self.__white_balance_modes = {}
+
+    def __on_white_balance_mode_changed(self):
+        white_balance_mode = self.__white_balance_mode_combo_box.currentText()
+        self.__color_temperature_combo_box.clear()
+        self.__color_temperature_label.setText("-1")
+        if white_balance_mode in self.__white_balance_modes:
+            temperature_colors = self.__white_balance_modes[white_balance_mode]
+            for temperature_color in temperature_colors:
+                self.__color_temperature_combo_box.addItem(str(temperature_color))
+
+    def __get_available_white_balance_callback(self, f):
+        result = f.result()
+        if result is not None:
+            white_balances = result[1]
+            if white_balances is not None:
+                self.__white_balance_mode_combo_box.clear()
+                for white_balance in white_balances:
+                    white_balance_mode = white_balance["whiteBalanceMode"]
+                    self.__white_balance_mode_combo_box.addItem(white_balance_mode)
+                    color_temperature_range = white_balance["colorTemperatureRange"]
+                    if color_temperature_range:
+                        color_temperatures = range(
+                            color_temperature_range[1],
+                            color_temperature_range[0] + 1,
+                            color_temperature_range[2],
+                        )
+                        self.__white_balance_modes[white_balance_mode] = color_temperatures
+
+    async def __get_available_white_balance(self):
+        future = asyncio.ensure_future(self.camera_remote.camera_api.getAvailableWhiteBalance())
+        future.add_done_callback(self.__get_available_white_balance_callback)
+
+    def event_callback(self, data):
+        white_balance_mode = data["currentWhiteBalanceMode"]
+        self.__white_balance_mode_label.setText(white_balance_mode)
+
+        color_temperature = data["currentColorTemperature"]
+        self.__color_temperature_label.setText(str(color_temperature))
+
+        color_temperature = data["checkAvailability"]
+        if color_temperature:
+            logger.debug("color temperature: check availability")
+            asyncio.ensure_future(self.__get_available_white_balance())
+
+    def __submit(self):
+        white_balance_mode = self.__white_balance_mode_combo_box.currentText()
+        color_temperature = self.__color_temperature_combo_box.currentText()
+        try:
+            int_color_temperature = int(color_temperature)
+            color_temperature_enabled = True
+        except ValueError:
+            int_color_temperature = -1
+            color_temperature_enabled = False
+
+        logger.info("set white balance to %s" % (white_balance_mode,))
+        asyncio.ensure_future(
+            self.camera_remote.camera_api.setWhiteBalance(
+                whiteBalanceMode=white_balance_mode,
+                colorTemperatureEnabled=color_temperature_enabled,
+                colorTemperature=int_color_temperature
+            )
+        )
+
+    def make_widget_group_box(self):
+        hbox_layout = QtWidgets.QHBoxLayout()
+
+        self.__white_balance_mode_label = QtWidgets.QLabel("")
+        self.__white_balance_mode_combo_box = QtWidgets.QComboBox()
+        self.__white_balance_mode_combo_box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.__white_balance_mode_combo_box.activated.connect(self.__on_white_balance_mode_changed)
+        white_balance_mode_layout = QtWidgets.QHBoxLayout()
+        white_balance_mode_layout.addWidget(self.__white_balance_mode_label)
+        white_balance_mode_layout.addWidget(self.__white_balance_mode_combo_box)
+        white_balance_mode_group_box = QtWidgets.QGroupBox("White balance mode")
+        white_balance_mode_group_box.setLayout(white_balance_mode_layout)
+
+        self.__color_temperature_label = QtWidgets.QLabel("")
+        self.__color_temperature_combo_box = QtWidgets.QComboBox()
+        color_temperature_layout = QtWidgets.QHBoxLayout()
+        color_temperature_layout.addWidget(self.__color_temperature_label)
+        color_temperature_layout.addWidget(self.__color_temperature_combo_box)
+        color_temperature_group_box = QtWidgets.QGroupBox("Color temperature")
+        color_temperature_group_box.setLayout(color_temperature_layout)
+
+        button = QtWidgets.QPushButton("Set white balance")
+        button.clicked.connect(self.__submit)
+
+        hbox_layout.addWidget(white_balance_mode_group_box)
+        hbox_layout.addWidget(color_temperature_group_box)
+        hbox_layout.addWidget(button)
+
+        group_box = QtWidgets.QGroupBox("White balance")
+        group_box.setLayout(hbox_layout)
+        return group_box
+
+
 class CameraRemote(QtWidgets.QMainWindow):
 
     def __init__(self, parent=None):
         QtWidgets.QMainWindow.__init__(self, parent)
 
         # --- Tabs
-        self.__TABS = ["exposure", "flash", "focus", "movie", "shoot", "sound"]
+        self.__TABS = ["color", "exposure", "flash", "focus", "movie", "shoot", "sound"]
 
         # --- Controls
         self.__WIDGETS = [
             {
-                "name": "exposureMode",
+                "tab": "color",
+                "position": (0, 0),
+                "widget": WhiteBalanceWidget(self)
+            },
+            {
                 "tab": "exposure",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "exposureMode", "Exposure mode")
@@ -135,91 +245,76 @@ class CameraRemote(QtWidgets.QMainWindow):
                                                  type_=int)
             },
             {
-                "name": "fNumber",
                 "tab": "exposure",
                 "position": (0, 2),
                 "widget": CurrentCandidateWidget(self, "fNumber", "F Number")
             },
             {
-                "name": "shutterSpeed",
                 "tab": "exposure",
                 "position": (1, 0),
                 "widget": CurrentCandidateWidget(self, "shutterSpeed", "Shutter Speed")
             },
             {
-                "name": "isoSpeedRate",
                 "tab": "exposure",
                 "position": (1, 1),
                 "widget": CurrentCandidateWidget(self, "isoSpeedRate", "Iso speed rate")
             },
             {
-                "name": "flashMode",
                 "tab": "flash",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "flashMode", "Flash mode")
             },
             {
-                "name": "focusMode",
                 "tab": "focus",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "focusMode", "Focus mode")
             },
             {
-                "name": "movieQuality",
                 "tab": "movie",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "movieQuality", "Movie Quality")
             },
             {
-                "name": "postviewImageSize",
                 "tab": "shoot",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "postviewImageSize", "Postview image size")
             },
             {
-                "name": "steadyMode",
                 "tab": "shoot",
                 "position": (0, 1),
                 "widget": CurrentCandidateWidget(self, "steadyMode", "Steady mode")
             },
             {
-                "name": "viewAngle",
                 "tab": "shoot",
                 "position": (0, 2),
                 "widget": CurrentCandidateWidget(self, "viewAngle", "View angle")
             },
             {
-                "name": "selfTimer",
                 "tab": "shoot",
                 "position": (1, 0),
                 "widget": CurrentCandidateWidget(self, "selfTimer", "Self timer", type_=int)
             },
             {
-                "name": "shootMode",
                 "tab": "shoot",
                 "position": (1, 1),
                 "widget": CurrentCandidateWidget(self, "shootMode", "Shoot mode")
             },
             {
-                "name": "actHalfPressShutter",
                 "tab": "shoot",
                 "position": (2, 0),
                 "widget": ActionWidget(self, "actHalfPressShutter", "Half press shutter")
             },
             {
-                "name": "cancelHalfPressShutter",
                 "tab": "shoot",
                 "position": (2, 1),
                 "widget": ActionWidget(self, "cancelHalfPressShutter", "Cancel half press shutter")
             },
             {
-                "name": "actTakePicture",
                 "tab": "shoot",
                 "position": (2, 2),
                 "widget": TakePictureWidget(self, "actTakePicture", "Take picture")
             },
             {
-                "name": "beepMode",
                 "tab": "sound",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "beepMode", "Beep mode")
@@ -240,12 +335,12 @@ class CameraRemote(QtWidgets.QMainWindow):
         # picture will be shown while the next is beeing downloded...
         self.__download_lock = asyncio.Lock()
 
-    def __take_picture_callback(self, event, data):
+    def __take_picture_callback(self, data):
         urls = data["takePictureUrl"]
         for url in urls:
             asyncio.ensure_future(self.download_picture(url))
 
-    def __update_status_callback(self, event, data):
+    def __update_status_callback(self, data):
         self.__status_label.setText(data["cameraStatus"])
 
     async def __device_available_callback(self, device_name, endpoint_url):
@@ -258,7 +353,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         callbacks = {}
         for widget in self.__WIDGETS:
             callback = widget["widget"].get_event_callback()
-            name = widget["name"]
+            name = widget["widget"].get_name()
             if callback is not None:
                 callbacks[name] = callback
         callbacks.update({"cameraStatus": self.__update_status_callback})

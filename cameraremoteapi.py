@@ -115,7 +115,7 @@ class CameraRemoteEventWatcher(object):
                     return
         else:
             data = item
-        event_callback(event_name, data)
+        event_callback(data)
 
     async def __watcher(self):
         long_polling_flag = False
@@ -553,7 +553,7 @@ class CameraRemoteApi(object):
                 "Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent"
                 "Fluorescent: Warm White (-1)", "Fluorescent: Cool White (0)",
                 "Fluorescent: Day White (+1)", "Fluorescent: Daylight (+2)",
-                "Flash", "Color Temperature", "Custom 1", "Custom 2", "Custom 3"
+                "Flash", "Color Temperature", "Custom"
             ],
             # setFlasmode
             "flashMode": ["off", "auto", "on", "slowSync", "rearSync", "wireless"],
@@ -692,14 +692,9 @@ class CameraRemoteApi(object):
                 if type(param_value) != self.__TYPES[param_name]:
                     raise ValueError("\"%s\" : wrong type" % (param_value,))
         # fill the query "params" value
-        if method.get("by_order", True):
-            param_items = []
-            for param_name, param_value in kwargs.items():
-                param_items.append(param_value)
-        else:
-            param_items = [{}]
-            for param_name, param_value in kwargs.items():
-                param_items[0][param_name] = param_value
+        param_items = []
+        for param_name in params:
+            param_items.append(kwargs[param_name])
 
         data = {
             "method": name,
