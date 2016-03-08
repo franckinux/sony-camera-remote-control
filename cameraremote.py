@@ -17,6 +17,98 @@ from utils import upper_first_letter
 # from utils import debug_trace
 
 
+class CameraRemoteWidget:
+    pass
+
+
+class CurrentCandidateWidget(CameraRemoteWidget):
+
+    def __init__(self, camera_remote, widget_name, group_caption, type_=str):
+        self.camera_remote = camera_remote
+        self.__widget_name = widget_name
+        self.__group_caption = group_caption
+        self.__type = type_
+
+        self.__widget_label = None
+        self.__widget_combo_box = None
+
+    def get_event_callback(self):
+        return self.__event_callback
+
+    def __event_callback(self, event, data):
+        current_value = data["Current"]
+        self.__widget_label.setText(str(current_value))
+        self.__widget_combo_box.clear()
+        for choice in data["Candidates"]:
+            self.__widget_combo_box.addItem(str(choice))
+
+    def __submit(self):
+        value = self.__type(self.__widget_combo_box.currentText())
+        kwargs = {self.__widget_name: value}
+        function_name = "set" + upper_first_letter(self.__widget_name)
+
+        logger.info("set %s parameter to %s" % (function_name, str(kwargs)))
+        function = getattr(self.camera_remote.camera_api, function_name)
+        asyncio.ensure_future(function(**kwargs))
+
+    def make_widget_group_box(self):
+        hbox_layout = QtWidgets.QHBoxLayout()
+
+        self.__widget_label = QtWidgets.QLabel("")
+        self.__widget_combo_box = QtWidgets.QComboBox()
+        self.__widget_combo_box.setObjectName(self.__widget_name)
+        self.__widget_combo_box.activated.connect(self.__submit)
+
+        hbox_layout.addWidget(self.__widget_label)
+        hbox_layout.addWidget(self.__widget_combo_box)
+
+        group_box = QtWidgets.QGroupBox(self.__group_caption)
+        group_box.setLayout(hbox_layout)
+        return group_box
+
+
+class ActionWidget(CameraRemoteWidget):
+
+    def __init__(self, camera_remote, widget_name, button_caption):
+        self.camera_remote = camera_remote
+        self.__widget_name = widget_name
+        self.__button_caption = button_caption
+        self.__widget_button = None
+
+    def get_event_callback(self):
+        return
+
+    def __submit(self):
+        function_name = self.__widget_name
+
+        logger.info("action %s" % (function_name,))
+        function = getattr(self.camera_remote.camera_api, function_name)
+        function_future = asyncio.ensure_future(function())
+        function_future.add_done_callback(self.submit_callback)
+
+    def submit_callback(self, f):
+        pass
+
+    def make_widget_group_box(self):
+        hbox_layout = QtWidgets.QHBoxLayout()
+        button = QtWidgets.QPushButton(self.__button_caption)
+        button.setObjectName(self.__widget_name)
+        button.clicked.connect(self.__submit)
+        hbox_layout.addWidget(button)
+        group_box = QtWidgets.QGroupBox()
+
+        group_box.setLayout(hbox_layout)
+        return group_box
+
+
+class TakePictureWidget(ActionWidget):
+
+    def submit_callback(self, f):
+        result = f.result()
+        url = result[0][0]
+        asyncio.ensure_future(self.camera_remote.download_picture(url))
+
+
 class CameraRemote(QtWidgets.QMainWindow):
 
     def __init__(self, parent=None):
@@ -26,116 +118,116 @@ class CameraRemote(QtWidgets.QMainWindow):
         self.__TABS = ["exposure", "flash", "focus", "movie", "shoot", "sound"]
 
         # --- Controls
-        self.__CONTROLS = {
-            "exposureMode": {
+        self.__WIDGETS = [
+            {
+                "name": "exposureMode",
                 "tab": "exposure",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "exposureMode", "Exposure mode")
             },
-            "exposureCompensation": {
+            {
+                "name": "exposureCompensation",
                 "tab": "exposure",
-                "widgets": "label-combo",
                 "position": (0, 1),
-                "type": int,
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self,
+                                                 "exposureCompensation",
+                                                 "Exposure compensation",
+                                                 type_=int)
             },
-            "fNumber": {
+            {
+                "name": "fNumber",
                 "tab": "exposure",
-                "widgets": "label-combo",
                 "position": (0, 2),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "fNumber", "F Number")
             },
-            "shutterSpeed": {
+            {
+                "name": "shutterSpeed",
                 "tab": "exposure",
-                "widgets": "label-combo",
                 "position": (1, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "shutterSpeed", "Shutter Speed")
             },
-            "isoSpeedRate": {
+            {
+                "name": "isoSpeedRate",
                 "tab": "exposure",
-                "widgets": "label-combo",
                 "position": (1, 1),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "isoSpeedRate", "Iso speed rate")
             },
-            "flashMode": {
+            {
+                "name": "flashMode",
                 "tab": "flash",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "flashMode", "Flash mode")
             },
-            "focusMode": {
+            {
+                "name": "focusMode",
                 "tab": "focus",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "focusMode", "Focus mode")
             },
-            "movieQuality": {
+            {
+                "name": "movieQuality",
                 "tab": "movie",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "movieQuality", "Movie Quality")
             },
-            "postviewImageSize": {
+            {
+                "name": "postviewImageSize",
                 "tab": "shoot",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "postviewImageSize", "Postview image size")
             },
-            "steadyMode": {
+            {
+                "name": "steadyMode",
                 "tab": "shoot",
-                "widgets": "label-combo",
                 "position": (0, 1),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "steadyMode", "Steady mode")
             },
-            "viewAngle": {
+            {
+                "name": "viewAngle",
                 "tab": "shoot",
-                "widgets": "label-combo",
                 "position": (0, 2),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "viewAngle", "View angle")
             },
-            "selfTimer": {
+            {
+                "name": "selfTimer",
                 "tab": "shoot",
-                "widgets": "label-combo",
                 "position": (1, 0),
-                "type": int,
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "selfTimer", "Self timer", type_=int)
             },
-            "shootMode": {
+            {
+                "name": "shootMode",
                 "tab": "shoot",
-                "widgets": "label-combo",
                 "position": (1, 1),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "shootMode", "Shoot mode")
             },
-            "actHalfPressShutter": {
+            {
+                "name": "actHalfPressShutter",
                 "tab": "shoot",
-                "widgets": "button",
-                "function-as-name": True,
                 "position": (2, 0),
+                "widget": ActionWidget(self, "actHalfPressShutter", "Half press shutter")
             },
-            "cancelHalfPressShutter": {
+            {
+                "name": "cancelHalfPressShutter",
                 "tab": "shoot",
-                "widgets": "button",
-                "function-as-name": True,
                 "position": (2, 1),
+                "widget": ActionWidget(self, "cancelHalfPressShutter", "Cancel half press shutter")
             },
-            "actTakePicture": {
+            {
+                "name": "actTakePicture",
                 "tab": "shoot",
-                "widgets": "button",
-                "function-as-name": True,
                 "position": (2, 2),
-                "submit-callback": self.__take_picture_submit_callback
+                "widget": TakePictureWidget(self, "actTakePicture", "Take picture")
             },
-            "beepMode": {
+            {
+                "name": "beepMode",
                 "tab": "sound",
-                "widgets": "label-combo",
                 "position": (0, 0),
-                "callback": self.__current_candidates_callback
+                "widget": CurrentCandidateWidget(self, "beepMode", "Beep mode")
             },
-        }
+        ]
 
         self.__init_ui()
-        self.__camera_remote_api = None
+        self.camera_api = None
         self.__camera_remote_control = CameraRemoteControl(
             "ILCE",
             self.__device_available_callback
@@ -151,39 +243,32 @@ class CameraRemote(QtWidgets.QMainWindow):
     def __take_picture_callback(self, event, data):
         urls = data["takePictureUrl"]
         for url in urls:
-            asyncio.ensure_future(self.__download_picture(url))
+            asyncio.ensure_future(self.download_picture(url))
 
     def __update_status_callback(self, event, data):
         self.__status_label.setText(data["cameraStatus"])
 
-    def __current_candidates_callback(self, event, data):
-        label = self.__CONTROLS[event]["Label"]
-        combo_box = self.__CONTROLS[event]["ComboBox"]
-        current_value = data["Current"]
-        label.setText(str(current_value))
-        combo_box.clear()
-        for choice in data["Candidates"]:
-            combo_box.addItem(str(choice))
-
     async def __device_available_callback(self, device_name, endpoint_url):
         logger.debug("device %s is connected" % (device_name,))
 
-        camera_remote_api = CameraRemoteApi(endpoint_url, loop)
-        self.__camera_remote_api = camera_remote_api
+        camera_api = CameraRemoteApi(endpoint_url, loop)
+        self.camera_api = camera_api
 
-        events_watcher = await camera_remote_api.initial_checks()
+        events_watcher = await camera_api.initial_checks()
         callbacks = {}
-        for key, value in self.__CONTROLS.items():
-            if "callback" in value:
-                callbacks[key] = value["callback"]
+        for widget in self.__WIDGETS:
+            callback = widget["widget"].get_event_callback()
+            name = widget["name"]
+            if callback is not None:
+                callbacks[name] = callback
         callbacks.update({"cameraStatus": self.__update_status_callback})
         callbacks.update({"takePicture": self.__take_picture_callback})
         events_watcher.register_events(callbacks)
         events_watcher.start_event_watcher()
 
-        await camera_remote_api.startRecMode()
+        await camera_api.startRecMode()
 
-    async def __download_picture(self, url):
+    async def download_picture(self, url):
         with (await self.__download_lock):
             with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
@@ -210,38 +295,6 @@ class CameraRemote(QtWidgets.QMainWindow):
                                 QtCore.Qt.SmoothTransformation
                             )
                             self.__picture_view_label.setPixmap(scaled_pixmap)
-
-    def __take_picture_submit_callback(self, f):
-        result = f.result()
-        url = result[0][0]
-        asyncio.ensure_future(self.__download_picture(url))
-
-    def __submit(self):
-        if self.__camera_remote_api is None:
-            return
-
-        sender = self.sender()
-        object_name = str(sender.objectName())
-
-        control = self.__CONTROLS[object_name]
-        function_as_name = control.get("function-as-name", False)
-        if function_as_name:
-            submit_callback = control.get("submit-callback")
-            function_name = object_name
-            kwargs = {}
-        else:
-            submit_callback = None
-            value = sender.currentText()
-            type_ = self.__CONTROLS[object_name].get("type", str)
-            value = type_(value)
-            kwargs = {object_name: value}
-            function_name = "set" + upper_first_letter(object_name)
-
-        logger.info("set %s parameter to %s" % (function_name, str(kwargs)))
-        function = getattr(self.__camera_remote_api, function_name)
-        function_future = asyncio.ensure_future(function(**kwargs))
-        if submit_callback:
-            function_future.add_done_callback(submit_callback)
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
@@ -280,33 +333,11 @@ class CameraRemote(QtWidgets.QMainWindow):
             layout = QtWidgets.QGridLayout()
             widget.setLayout(layout)
             max_x = max_y = 0
-            for control_name, control_value in self.__CONTROLS.items():
-                if control_value["tab"] == tab:
-                    hbox_layout = QtWidgets.QHBoxLayout()
-                    if control_value["widgets"] == "label-combo":
+            for widget in self.__WIDGETS:
+                if widget["tab"] == tab:
+                    group_box = widget["widget"].make_widget_group_box()
 
-                        label = QtWidgets.QLabel("")
-                        combo_box = QtWidgets.QComboBox()
-                        combo_box.setObjectName(control_name)
-                        combo_box.activated.connect(self.__submit)
-
-                        hbox_layout.addWidget(label)
-                        hbox_layout.addWidget(combo_box)
-
-                        control_value["Label"] = label
-                        control_value["ComboBox"] = combo_box
-
-                        group_box = QtWidgets.QGroupBox(control_name)
-                    elif control_value["widgets"] == "button":
-                        button = QtWidgets.QPushButton(control_name)
-                        button.setObjectName(control_name)
-                        button.clicked.connect(self.__submit)
-                        hbox_layout.addWidget(button)
-
-                        group_box = QtWidgets.QGroupBox()
-
-                    group_box.setLayout(hbox_layout)
-                    x, y = control_value["position"]
+                    x, y = widget["position"]
                     if x > max_x:
                         max_x = x
                     if y > max_y:
@@ -347,10 +378,10 @@ class CameraRemote(QtWidgets.QMainWindow):
         tabs.addTab(test_widget, "test")
 
     def __button1_callback(self):
-        asyncio.ensure_future(self.__camera_remote_api.getAvailableApiList())
+        asyncio.ensure_future(self.camera_api.getAvailableApiList())
 
     def __button2_callback(self):
-        asyncio.ensure_future(self.__camera_remote_api.getVersions())
+        asyncio.ensure_future(self.camera_api.getVersions())
 
     def __pre_close_callback(self, f):
         self.__closing_actions = True
@@ -358,11 +389,11 @@ class CameraRemote(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if self.__closing_actions:
-            self.__camera_remote_api.close()
+            self.camera_api.close()
             logger.info("finished")
         else:
-            if self.__camera_remote_api is not None:
-                stop_future = asyncio.ensure_future(self.__camera_remote_api.stopRecMode())
+            if self.camera_api is not None:
+                stop_future = asyncio.ensure_future(self.camera_api.stopRecMode())
                 stop_future.add_done_callback(self.__pre_close_callback)
                 event.ignore()
             else:
