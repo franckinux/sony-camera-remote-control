@@ -249,7 +249,16 @@ class CameraRemoteApi(object):
             },
 
             # Zoom setting (N/A)
-            # Half-press shutter (N/A)
+
+            # Half-press shutter
+            "actHalfPressShutter": {
+                "params": [],
+                "version": "1.0"
+            },
+            "cancelHalfPressShutter": {
+                "params": [],
+                "version": "1.0"
+            },
 
             # Touch AF position
             "setTouchAFPosition": {
@@ -398,7 +407,8 @@ class CameraRemoteApi(object):
             # White balance
             "setWhiteBalance": {
                 "params": [
-                    "whiteBalanceMode", "colorTemperatureEnabled",
+                    "whiteBalanceMode",
+                    "colorTemperatureEnabled",
                     "colorTemperature"
                 ],
                 "version": "1.0"
@@ -618,9 +628,6 @@ class CameraRemoteApi(object):
                           (method_name, current_version, new_version))
         return self.__events_watcher
 
-    def start_event_watcher(self):
-        self.__events_watcher.start_event_watcher()
-
     def set_default_timeout(self, timeout):
         self.__timeout = timeout
 
@@ -723,7 +730,9 @@ class CameraRemoteApi(object):
                 return resp["results"]
 
         if "error" in resp:
-            raise CameraRemoteException(resp["error"][1])
+            error = resp["error"][1]
+            logger.error(error)
+            raise CameraRemoteException(error)
 
     def close(self):
         if self.__events_watcher is not None:

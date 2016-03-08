@@ -58,12 +58,6 @@ class CameraRemote(QtWidgets.QMainWindow):
                 "position": (1, 1),
                 "callback": self.__current_candidates_callback
             },
-            "postviewImageSize": {
-                "tab": "exposure",
-                "widgets": "label-combo",
-                "position": (1, 2),
-                "callback": self.__current_candidates_callback
-            },
             "flashMode": {
                 "tab": "flash",
                 "widgets": "label-combo",
@@ -82,49 +76,55 @@ class CameraRemote(QtWidgets.QMainWindow):
                 "position": (0, 0),
                 "callback": self.__current_candidates_callback
             },
-            "steadyMode": {
+            "postviewImageSize": {
                 "tab": "shoot",
                 "widgets": "label-combo",
                 "position": (0, 0),
                 "callback": self.__current_candidates_callback
             },
-            "viewAngle": {
+            "steadyMode": {
                 "tab": "shoot",
                 "widgets": "label-combo",
                 "position": (0, 1),
                 "callback": self.__current_candidates_callback
             },
-            "selfTimer": {
+            "viewAngle": {
                 "tab": "shoot",
                 "widgets": "label-combo",
                 "position": (0, 2),
+                "callback": self.__current_candidates_callback
+            },
+            "selfTimer": {
+                "tab": "shoot",
+                "widgets": "label-combo",
+                "position": (1, 0),
                 "type": int,
                 "callback": self.__current_candidates_callback
             },
             "shootMode": {
                 "tab": "shoot",
                 "widgets": "label-combo",
-                "position": (1, 0),
+                "position": (1, 1),
                 "callback": self.__current_candidates_callback
             },
             "actHalfPressShutter": {
                 "tab": "shoot",
                 "widgets": "button",
                 "function-as-name": True,
-                "position": (1, 1),
+                "position": (2, 0),
             },
             "cancelHalfPressShutter": {
                 "tab": "shoot",
                 "widgets": "button",
                 "function-as-name": True,
-                "position": (1, 2),
+                "position": (2, 1),
             },
             "actTakePicture": {
                 "tab": "shoot",
                 "widgets": "button",
                 "function-as-name": True,
-                "position": (2, 0),
-                "submit-callback": self.__take_picture_function_callback
+                "position": (2, 2),
+                "submit-callback": self.__take_picture_submit_callback
             },
             "beepMode": {
                 "tab": "sound",
@@ -179,7 +179,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         callbacks.update({"cameraStatus": self.__update_status_callback})
         callbacks.update({"takePicture": self.__take_picture_callback})
         events_watcher.register_events(callbacks)
-        self.__camera_remote_api.start_event_watcher()
+        events_watcher.start_event_watcher()
 
         await camera_remote_api.startRecMode()
 
@@ -211,7 +211,7 @@ class CameraRemote(QtWidgets.QMainWindow):
                             )
                             self.__picture_view_label.setPixmap(scaled_pixmap)
 
-    def __take_picture_function_callback(self, f):
+    def __take_picture_submit_callback(self, f):
         result = f.result()
         url = result[0][0]
         asyncio.ensure_future(self.__download_picture(url))
@@ -226,11 +226,11 @@ class CameraRemote(QtWidgets.QMainWindow):
         control = self.__CONTROLS[object_name]
         function_as_name = control.get("function-as-name", False)
         if function_as_name:
-            function_callback = control.get("submit-callback")
+            submit_callback = control.get("submit-callback")
             function_name = object_name
             kwargs = {}
         else:
-            function_callback = None
+            submit_callback = None
             value = sender.currentText()
             type_ = self.__CONTROLS[object_name].get("type", str)
             value = type_(value)
@@ -240,8 +240,8 @@ class CameraRemote(QtWidgets.QMainWindow):
         logger.info("set %s parameter to %s" % (function_name, str(kwargs)))
         function = getattr(self.__camera_remote_api, function_name)
         function_future = asyncio.ensure_future(function(**kwargs))
-        if function_callback:
-            function_future.add_done_callback(function_callback)
+        if submit_callback:
+            function_future.add_done_callback(submit_callback)
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
