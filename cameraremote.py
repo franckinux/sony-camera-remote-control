@@ -101,12 +101,24 @@ class ActionWidget(CameraRemoteWidget):
         return group_box
 
 
+class StartLiveviewWidget(ActionWidget):
+
+    def submit_callback(self, f):
+        result = f.result()
+        url = result[0]
+        self.camera_remote.liveview_task = asyncio.ensure_future(
+            self.camera_remote.download_liveview(url)
+        )
+
+
 class TakePictureWidget(ActionWidget):
 
     def submit_callback(self, f):
         result = f.result()
         url = result[0][0]
-        asyncio.ensure_future(self.camera_remote.download_picture(url))
+        self.camera_remote.download_task = asyncio.ensure_future(
+            self.camera_remote.download_picture(url)
+        )
 
 
 class WhiteBalanceWidget(CameraRemoteWidget):
@@ -221,7 +233,7 @@ class CameraRemote(QtWidgets.QMainWindow):
         QtWidgets.QMainWindow.__init__(self, parent)
 
         # --- Tabs
-        self.__TABS = ["color", "exposure", "flash", "focus", "movie", "shoot", "sound"]
+        self.__TABS = ["color", "exposure", "flash", "focus", "liveview", "movie", "shoot", "sound"]
 
         # --- Controls
         self.__WIDGETS = [
@@ -268,6 +280,16 @@ class CameraRemote(QtWidgets.QMainWindow):
                 "tab": "focus",
                 "position": (0, 0),
                 "widget": CurrentCandidateWidget(self, "focusMode", "Focus mode")
+            },
+            {
+                "tab": "liveview",
+                "position": (0, 0),
+                "widget": StartLiveviewWidget(self, "startLiveview", "Start liveview")
+            },
+            {
+                "tab": "liveview",
+                "position": (1, 0),
+                "widget": ActionWidget(self, "stopLiveview", "Stop liveview")
             },
             {
                 "tab": "movie",
@@ -335,10 +357,13 @@ class CameraRemote(QtWidgets.QMainWindow):
         # picture will be shown while the next is beeing downloded...
         self.__download_lock = asyncio.Lock()
 
+        self.liveview_task = None
+        self.download_task = None
+
     def __take_picture_callback(self, data):
         urls = data["takePictureUrl"]
         for url in urls:
-            asyncio.ensure_future(self.download_picture(url))
+            self.download_task = asyncio.ensure_future(self.download_picture(url))
 
     def __update_status_callback(self, data):
         self.__status_label.setText(data["cameraStatus"])
@@ -363,33 +388,82 @@ class CameraRemote(QtWidgets.QMainWindow):
 
         await camera_api.startRecMode()
 
+    async def download_liveview(self, url):
+
+        async def load_data(plsize, pdsize):
+            with BytesIO() as fd:
+                while plsize > 0:
+                    chunk = await resp.content.read(plsize)
+                    fd.write(chunk)
+                    plsize -= len(chunk)
+                data = fd.getvalue()
+            if pdsize != 0:
+                await resp.content.read(pdsize)
+            return data
+
+        with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        while True:
+                            # read common and payload header
+                            headers = await resp.content.read(8 + 128)
+                            if headers[0] != 0xff:
+                                logger.debug("desynchronized from liveview stream")
+                                break
+                            # debug_trace()
+                            payload_size = 0
+                            for byte in headers[12:15]:
+                                payload_size *= 256
+                                payload_size += byte
+                            padding_size = headers[15]
+                            if headers[1] == 1:
+                                data = await load_data(payload_size, padding_size)
+                                pixmap = QtGui.QPixmap()
+                                pixmap.loadFromData(QtCore.QByteArray(data))
+                                scaled_pixmap = pixmap.scaled(
+                                    self.__liveview_view_label.size(),
+                                    QtCore.Qt.KeepAspectRatio,
+                                    QtCore.Qt.SmoothTransformation
+                                )
+                                self.__liveview_view_label.setPixmap(scaled_pixmap)
+                            else:
+                                await load_data(payload_size, padding_size)
+            except:
+                pass
+            self.__liveview_task = None
+
     async def download_picture(self, url):
         with (await self.__download_lock):
             with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status == 200:
-                        if resp.headers["CONTENT-TYPE"] == "image/jpeg":
-                            content_length = int(resp.headers["CONTENT-LENGTH"])
-                            downloaded = 0
-                            with BytesIO() as fd:
-                                while True:
-                                    chunk = await resp.content.read(1024)
-                                    if not chunk:
-                                        break
-                                    downloaded += len(chunk)
-                                    percent = int(downloaded * 100 / content_length)
-                                    self.__download_progress_bar.setValue(percent)
-                                    fd.write(chunk)
-                                data = fd.getvalue()
-                            self.__download_progress_bar.reset()
-                            pixmap = QtGui.QPixmap()
-                            pixmap.loadFromData(QtCore.QByteArray(data))
-                            scaled_pixmap = pixmap.scaled(
-                                self.__picture_view_label.size(),
-                                QtCore.Qt.KeepAspectRatio,
-                                QtCore.Qt.SmoothTransformation
-                            )
-                            self.__picture_view_label.setPixmap(scaled_pixmap)
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            if resp.headers["CONTENT-TYPE"] == "image/jpeg":
+                                content_length = int(resp.headers["CONTENT-LENGTH"])
+                                downloaded = 0
+                                with BytesIO() as fd:
+                                    while True:
+                                        chunk = await resp.content.read(1024)
+                                        if not chunk:
+                                            break
+                                        downloaded += len(chunk)
+                                        percent = int(downloaded * 100 / content_length)
+                                        self.__download_progress_bar.setValue(percent)
+                                        fd.write(chunk)
+                                    data = fd.getvalue()
+                                self.__download_progress_bar.reset()
+                                pixmap = QtGui.QPixmap()
+                                pixmap.loadFromData(QtCore.QByteArray(data))
+                                scaled_pixmap = pixmap.scaled(
+                                    self.__picture_view_label.size(),
+                                    QtCore.Qt.KeepAspectRatio,
+                                    QtCore.Qt.SmoothTransformation
+                                )
+                                self.__picture_view_label.setPixmap(scaled_pixmap)
+                except:
+                    pass
+            self.__download_task = None
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
@@ -446,8 +520,18 @@ class CameraRemote(QtWidgets.QMainWindow):
             vbox.addStretch(1)
             layout.addLayout(vbox, max_y + 1, 0, max_x + 1, 1)
 
+        # --- Liveview view tab
+        self.__liveview_view_label = QtWidgets.QLabel()
+        self.__liveview_view_label.setAlignment(QtCore.Qt.AlignTop)
+        self.__liveview_view_label.setMargin(0)
+        liveview_view_layout = QtWidgets.QHBoxLayout()
+        liveview_view_layout.addWidget(self.__liveview_view_label)
+        liveview_view_layout.setContentsMargins(0, 0, 0, 0)
+        liveview_view_widget = QtWidgets.QWidget()
+        liveview_view_widget.setLayout(liveview_view_layout)
+        tabs.addTab(liveview_view_widget, "liveview view")
+
         # --- Picture view tab
-        # use a layout (does not work better)
         self.__picture_view_label = QtWidgets.QLabel()
         self.__picture_view_label.setAlignment(QtCore.Qt.AlignTop)
         self.__picture_view_label.setMargin(0)
@@ -484,6 +568,10 @@ class CameraRemote(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if self.__closing_actions:
+            if self.download_task is not None:
+                self.download_task.cancel()
+            if self.liveview_task is not None:
+                self.liveview_task.cancel()
             self.camera_api.close()
             logger.info("finished")
         else:
