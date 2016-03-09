@@ -431,7 +431,7 @@ class CameraRemote(QtWidgets.QMainWindow):
                                 await load_data(payload_size, padding_size)
             except:
                 pass
-            self.__liveview_task = None
+            self.liveview_task = None
 
     async def download_picture(self, url):
         with (await self.__download_lock):
@@ -463,7 +463,7 @@ class CameraRemote(QtWidgets.QMainWindow):
                                 self.__picture_view_label.setPixmap(scaled_pixmap)
                 except:
                     pass
-            self.__download_task = None
+            self.download_task = None
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
