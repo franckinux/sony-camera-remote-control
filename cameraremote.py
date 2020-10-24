@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import aiohttp
 import asyncio
 from io import BytesIO
 import logging
-# import os
-from PyQt5 import QtCore, QtGui, QtWidgets
-from quamash import QEventLoop
+from PySide2 import QtCore, QtGui, QtWidgets
+from qasync import QEventLoop
+from qasync import asyncClose
+from qasync import asyncSlot
+# from asyncqt import QEventLoop
+# from asyncqt import asyncClose
+# from asyncqt import asyncSlot
 import sys
 
 from cameraremoteapi import CameraRemoteApi  # , CameraRemoteApiException
@@ -44,14 +47,15 @@ class CurrentCandidateWidget(CameraRemoteWidget):
         for choice in data["Candidates"]:
             self.__widget_combo_box.addItem(str(choice))
 
-    def __submit(self):
+    @asyncSlot()
+    async def __submit(self):
         value = self.__type(self.__widget_combo_box.currentText())
         kwargs = {self.widget_name: value}
         function_name = "set" + upper_first_letter(self.widget_name)
 
         logger.info("set %s parameter to %s" % (function_name, str(kwargs)))
         function = getattr(self.camera_remote.camera_api, function_name)
-        asyncio.ensure_future(function(**kwargs))
+        await function(**kwargs)
 
     def make_widget_group_box(self):
         hbox_layout = QtWidgets.QHBoxLayout()
@@ -79,16 +83,13 @@ class ActionWidget(CameraRemoteWidget):
     def get_event_callback(self):
         return
 
-    def __submit(self):
+    @asyncSlot()
+    async def __submit(self):
         function_name = self.widget_name
 
         logger.info("action %s" % (function_name,))
         function = getattr(self.camera_remote.camera_api, function_name)
-        function_future = asyncio.ensure_future(function())
-        function_future.add_done_callback(self.submit_callback)
-
-    def submit_callback(self, f):
-        pass
+        await function()
 
     def make_widget_group_box(self):
         hbox_layout = QtWidgets.QHBoxLayout()
@@ -106,7 +107,7 @@ class StartLiveviewWidget(ActionWidget):
     def submit_callback(self, f):
         result = f.result()
         url = result[0]
-        self.camera_remote.liveview_task = asyncio.ensure_future(
+        self.camera_remote.liveview_task = asyncio.create_task(
             self.camera_remote.download_liveview(url)
         )
 
@@ -116,7 +117,7 @@ class TakePictureWidget(ActionWidget):
     def submit_callback(self, f):
         result = f.result()
         url = result[0][0]
-        self.camera_remote.download_task = asyncio.ensure_future(
+        self.camera_remote.download_task = asyncio.create_task(
             self.camera_remote.download_picture(url)
         )
 
@@ -160,8 +161,8 @@ class WhiteBalanceWidget(CameraRemoteWidget):
                         self.__white_balance_modes[white_balance_mode] = color_temperatures
 
     async def __get_available_white_balance(self):
-        future = asyncio.ensure_future(self.camera_remote.camera_api.getAvailableWhiteBalance())
-        future.add_done_callback(self.__get_available_white_balance_callback)
+        task = asyncio.create_task(self.camera_remote.camera_api.getAvailableWhiteBalance())
+        task.add_done_callback(self.__get_available_white_balance_callback)
 
     def event_callback(self, data):
         white_balance_mode = data["currentWhiteBalanceMode"]
@@ -173,7 +174,7 @@ class WhiteBalanceWidget(CameraRemoteWidget):
         color_temperature = data["checkAvailability"]
         if color_temperature:
             logger.debug("color temperature: check availability")
-            asyncio.ensure_future(self.__get_available_white_balance())
+            asyncio.create_task(self.__get_available_white_balance())
 
     def __submit(self):
         white_balance_mode = self.__white_balance_mode_combo_box.currentText()
@@ -186,7 +187,7 @@ class WhiteBalanceWidget(CameraRemoteWidget):
             color_temperature_enabled = False
 
         logger.info("set white balance to %s" % (white_balance_mode,))
-        asyncio.ensure_future(
+        asyncio.create_task(
             self.camera_remote.camera_api.setWhiteBalance(
                 whiteBalanceMode=white_balance_mode,
                 colorTemperatureEnabled=color_temperature_enabled,
@@ -230,7 +231,7 @@ class WhiteBalanceWidget(CameraRemoteWidget):
 class CameraRemote(QtWidgets.QMainWindow):
 
     def __init__(self, parent=None):
-        QtWidgets.QMainWindow.__init__(self, parent)
+        super().__init__(parent)
 
         # --- Tabs
         self.__TABS = ["color", "exposure", "flash", "focus", "liveview", "movie", "shoot", "sound"]
@@ -363,7 +364,7 @@ class CameraRemote(QtWidgets.QMainWindow):
     def __take_picture_callback(self, data):
         urls = data["takePictureUrl"]
         for url in urls:
-            self.download_task = asyncio.ensure_future(self.download_picture(url))
+            self.download_task = asyncio.create_task(self.download_picture(url))
 
     def __update_status_callback(self, data):
         self.__status_label.setText(data["cameraStatus"])
@@ -371,7 +372,7 @@ class CameraRemote(QtWidgets.QMainWindow):
     async def __device_available_callback(self, device_name, endpoint_url):
         logger.debug("device %s is connected" % (device_name,))
 
-        camera_api = CameraRemoteApi(endpoint_url, loop)
+        camera_api = CameraRemoteApi(endpoint_url)
         self.camera_api = camera_api
 
         events_watcher = await camera_api.initial_checks()
@@ -429,9 +430,13 @@ class CameraRemote(QtWidgets.QMainWindow):
                                 self.__liveview_view_label.setPixmap(scaled_pixmap)
                             else:
                                 await load_data(payload_size, padding_size)
-            except:
+            except Exception:
                 pass
             self.liveview_task = None
+
+    @asyncSlot()
+    async def discover(self):
+        await self.__camera_remote_control.discover()
 
     async def download_picture(self, url):
         with (await self.__download_lock):
@@ -461,17 +466,21 @@ class CameraRemote(QtWidgets.QMainWindow):
                                     QtCore.Qt.SmoothTransformation
                                 )
                                 self.__picture_view_label.setPixmap(scaled_pixmap)
-                except:
+                except Exception:
                     pass
             self.download_task = None
 
     def __init_menu_bar(self):
         menubar = self.menuBar()
 
+        discover_action = QtWidgets.QAction("Discover", self)
+        discover_action.triggered.connect(self.discover)
+
         quit_action = QtWidgets.QAction("Quit", self)
         quit_action.triggered.connect(self.close)
 
         file_ = menubar.addMenu("File")
+        file_.addAction(discover_action)
         file_.addAction(quit_action)
 
     def __init_ui(self):
@@ -556,28 +565,32 @@ class CameraRemote(QtWidgets.QMainWindow):
         button2.clicked.connect(self.__button2_callback)
         tabs.addTab(test_widget, "test")
 
-    def __button1_callback(self):
-        asyncio.ensure_future(self.camera_api.getAvailableApiList())
+    @asyncSlot()
+    async def __button1_callback(self):
+        await self.camera_api.getAvailableApiList()
 
-    def __button2_callback(self):
-        asyncio.ensure_future(self.camera_api.getVersions())
+    @asyncSlot()
+    async def __button2_callback(self):
+        await self.camera_api.getVersions()
 
-    def __pre_close_callback(self, f):
+    def __pre_close_callback(self):
         self.__closing_actions = True
         self.close()
 
-    def closeEvent(self, event):
+    @asyncClose
+    async def closeEvent(self, event):
         if self.__closing_actions:
             if self.download_task is not None:
                 self.download_task.cancel()
             if self.liveview_task is not None:
                 self.liveview_task.cancel()
-            self.camera_api.close()
+            await self.camera_api.close()
             logger.info("finished")
         else:
             if self.camera_api is not None:
-                stop_future = asyncio.ensure_future(self.camera_api.stopRecMode())
-                stop_future.add_done_callback(self.__pre_close_callback)
+                await self.camera_api.stopRecMode()
+                loop = asyncio.get_event_loop()
+                loop.call_soon(self.__pre_close_callback)
                 event.ignore()
             else:
                 logger.info("finished")
@@ -599,8 +612,7 @@ logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 logger.info("started")
 
-try:
-    sys.exit(app.exec_())
-finally:
-    loop.close()
-    file_handler.close()
+with loop:
+    sys.exit(loop.run_forever())
+
+file_handler.close()

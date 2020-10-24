@@ -3,6 +3,7 @@ data/*
 exemples/*
 doc/*
 tmp/*
+tags
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

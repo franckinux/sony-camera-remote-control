@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import aiohttp
 import asyncio
 from distutils.version import StrictVersion
@@ -19,11 +17,11 @@ class CameraRemoteException(Exception):
     pass
 
 
-class CameraRemoteEventWatcher(object):
+class CameraRemoteEventWatcher:
 
     def __init__(self, camera_remote_api):
         self.__camera_remote_api = camera_remote_api
-        self.__event_watcher_future = None
+        self.event_watcher_task = None
 
         self.__registered_events = {
             "cameraStatus": None,
@@ -139,21 +137,23 @@ class CameraRemoteEventWatcher(object):
             logger.error("watcher event loop stopped unexpectedly, reason: %s" % (str(exception),))
 
     def start_event_watcher(self):
-        self.__event_watcher_future = asyncio.ensure_future(self.__watcher())
-        self.__event_watcher_future.add_done_callback(self.__end_watcher)
+        self.event_watcher_task = asyncio.create_task(self.__watcher())
+        self.event_watcher_task.add_done_callback(self.__end_watcher)
 
     def stop_event_watcher(self):
-        if self.__event_watcher_future is not None:
-            self.__event_watcher_future.cancel()
+        if self.event_watcher_task is not None:
+            self.event_watcher_task.cancel()
 
 
-class CameraRemoteApi(object):
+class CameraRemoteApi:
 
     SERVICE_NAME = "camera"
 
-    def __init__(self, endpoint_url, loop):
+    def __init__(self, endpoint_url):
         self.__endpoint_url = endpoint_url
-        self.__session = aiohttp.ClientSession(loop=loop)
+        self.__session = aiohttp.ClientSession(
+            loop=asyncio.get_event_loop()
+        )
 
         self.__request_id = 1
         self.__timeout = 5
@@ -643,18 +643,23 @@ class CameraRemoteApi(object):
             name = None
         return partial(self.__trunk, name)
 
-    async def __get_response(self, data, headers):
+    async def __get_response(self, data, headers, timeout):
         logger.debug("called > %s" % (data,))
         try:
-            response = await self.__session.post(self.__endpoint_url,
-                                                 data=data.encode("ascii"),
-                                                 headers=headers)
+            response = await self.__session.post(
+                self.__endpoint_url,
+                data=data.encode("ascii"),
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout)
+            )
             if response.status == 200:
                 resp = await response.json()
                 logger.debug("received < %s" % (resp,))
             else:
                 raise CameraRemoteException("http error %d" % (response.status,))
-        finally:
+        except asyncio.exceptions.TimeoutError as e:
+            raise CameraRemoteException("reception timeout") from e
+        else:
             response.release()
         return resp
 
@@ -707,11 +712,7 @@ class CameraRemoteApi(object):
 
         data_json = json.dumps(data)
         headers = {'content-type': 'application/json'}
-        if timeout is None:
-            resp = await self.__get_response(data_json, headers)
-        else:
-            with aiohttp.Timeout(timeout):
-                resp = await self.__get_response(data_json, headers)
+        resp = await self.__get_response(data_json, headers, timeout)
 
         if resp["id"] != req_id:
             raise CameraRemoteException("bad id")
@@ -729,7 +730,7 @@ class CameraRemoteApi(object):
             logger.error(error)
             raise CameraRemoteException(error)
 
-    def close(self):
+    async def close(self):
         if self.__events_watcher is not None:
             self.__events_watcher.stop_event_watcher()
-        self.__session.close()
+        await self.__session.close()
